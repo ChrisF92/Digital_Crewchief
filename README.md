@@ -46,7 +46,30 @@ Digital_Crewchief/
 
 ## Working with VBA in this repo
 
-Edit files under `vba/`, then import changed modules into the workbook via the VBA editor (Alt+F11 → File → Import File). Re-export after workbook changes:
+All VBA source is stored as plain **`.txt` files** so they can be downloaded on restricted work systems that block `.bas`, `.cls`, and `.frm` files.
+
+### Apply changes to the workbook
+
+**Option A — copy and paste (recommended on restricted systems)**
+
+1. Open the relevant `.txt` file from GitHub (e.g. `vba/Modules/modRefresh.txt`).
+2. In Excel, press **Alt+F11** to open the VBA editor.
+3. Open the matching module in the project tree.
+4. Select all existing code (Ctrl+A) and paste the updated text from the `.txt` file.
+
+**Option B — import after renaming**
+
+If your system allows it, rename the file to the correct VBA extension before importing:
+
+| Folder | Rename to |
+|---|---|
+| `vba/Modules/` | `.bas` |
+| `vba/ExcelObjects/` | `.cls` |
+| `vba/Forms/` | `.frm` |
+
+Then use **File → Import File** in the VBA editor.
+
+### Re-export from the workbook
 
 ```bash
 pip install pyopenvba
