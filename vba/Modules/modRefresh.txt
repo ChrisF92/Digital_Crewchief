@@ -50,6 +50,9 @@ Public Sub RefreshAll()
     Dim dashWs As Worksheet
     Set dashWs = PrepareDashboard(settings.MaxAircraftSlots)
 
+    Dim dashboardRows() As DashboardAircraftRowData
+    ReDim dashboardRows(1 To Application.Max(aircraftCount, 1))
+
     Dim aircraftIndex As Long
     Dim failedTail As String
     failedTail = vbNullString
@@ -58,28 +61,26 @@ Public Sub RefreshAll()
 
         failedTail = tailNumbers(aircraftIndex)
 
-        modAircraftRefresh.RefreshAircraftAtIndex _
+        dashboardRows(aircraftIndex) = modAircraftRefresh.RefreshAircraftAtIndex _
             aircraftIndex, _
             aircraftRoster, _
             settings, _
             rates, _
-            weekStartDates, _
-            dashWs
+            weekStartDates
 
     Next aircraftIndex
 
-    With dashWs.Range("A4:L" & 4 + Application.Max(aircraftCount, 1))
-        .Font.Name = "Arial"
-        .Font.Size = 10
-        .VerticalAlignment = xlTop
-        .WrapText = True
-        .Borders.LineStyle = xlContinuous
-        .Borders.Color = RGB(220, 220, 220)
-    End With
+    Dim writtenRows() As DashboardWrittenRow
+    Dim writtenRowCount As Long
 
-    If aircraftCount > 0 Then dashWs.Rows("5:" & 4 + aircraftCount).RowHeight = 66
+    writtenRowCount = WriteDashboardSections( _
+        dashWs, _
+        dashboardRows, _
+        aircraftCount, _
+        settings.DashboardSortOrder, _
+        writtenRows)
 
-    LayoutDashboardReimportButtons dashWs, tailNumbers, aircraftCount
+    LayoutDashboardReimportButtons dashWs, writtenRows, writtenRowCount
     WriteDashboardImportBanner dashWs, tailNumbers, aircraftCount
 
     MsgBox "Refresh complete. " & aircraftCount & " aircraft processed.", vbInformation, "Wildcat Planner"

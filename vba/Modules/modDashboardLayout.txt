@@ -9,15 +9,35 @@ Option Explicit
 
 Private Const DASHBOARD_SHEET_NAME As String = "Dashboard"
 
-Private Const DASHBOARD_BANNER_ROW As Long = 3
+Public Const DASHBOARD_BANNER_ROW As Long = 3
+Public Const DASHBOARD_FIRST_LAYOUT_ROW As Long = 4
 Public Const DASHBOARD_HEADER_ROW As Long = 4
 Private Const DASHBOARD_FIRST_COL As Long = 1
 Private Const DASHBOARD_LAST_COL As Long = 12
 Private Const DASHBOARD_COL_REIMPORT As Long = 12
+Private Const DASHBOARD_SECTION_SPACER_ROWS As Long = 1
 
 Public Const DASHBOARD_REIMPORT_BTN_PREFIX As String = "dashReimport_"
 
 Private Const DASHBOARD_HEADER_BLUE As Long = 9851952 ' RGB(47, 84, 150)
+Private Const DASHBOARD_SECTION_TITLE_GREY As Long = 14277081 ' RGB(217, 217, 217)
+
+
+Public Type DashboardAircraftRowData
+    tailNumber As String
+    section As String
+    sortCycleWeek As Long
+    rotationText As String
+    daysToMaintenance As Variant
+    chartSheetName As String
+    importSheetName As String
+    buckets As DashboardSummaryBuckets
+End Type
+
+Public Type DashboardWrittenRow
+    dashboardRow As Long
+    tailNumber As String
+End Type
 
 
 '------------------------------------------------------------------------------
@@ -43,10 +63,10 @@ Public Sub ClearDashboardSummary(ByVal dashboardWs As Worksheet, _
     ClearDashboardImportBanner dashboardWs
 
     Dim lastDashboardRow As Long
-    lastDashboardRow = DASHBOARD_HEADER_ROW + maxSlots
+    lastDashboardRow = DASHBOARD_FIRST_LAYOUT_ROW + (maxSlots * 4)
 
     With dashboardWs.Range( _
-        dashboardWs.Cells(DASHBOARD_HEADER_ROW, DASHBOARD_FIRST_COL), _
+        dashboardWs.Cells(DASHBOARD_FIRST_LAYOUT_ROW, DASHBOARD_FIRST_COL), _
         dashboardWs.Cells(lastDashboardRow, DASHBOARD_LAST_COL))
 
         .ClearContents
@@ -61,7 +81,7 @@ Public Sub ClearDashboardSummary(ByVal dashboardWs As Worksheet, _
     End With
 
     ClearCommentsInRange dashboardWs.Range( _
-        dashboardWs.Cells(DASHBOARD_HEADER_ROW + 1, DASHBOARD_FIRST_COL), _
+        dashboardWs.Cells(DASHBOARD_FIRST_LAYOUT_ROW, DASHBOARD_FIRST_COL), _
         dashboardWs.Cells(lastDashboardRow, DASHBOARD_LAST_COL))
 
     Dim dashboardLink As Hyperlink
@@ -74,33 +94,20 @@ End Sub
 
 
 '------------------------------------------------------------------------------
-' Purpose : Writes and formats dashboard column headers.
-' Input : dashboardWs - Dashboard worksheet.
+' Purpose : Writes section-specific dashboard column headers.
 '------------------------------------------------------------------------------
-Public Sub WriteDashboardHeaders(ByVal dashboardWs As Worksheet)
+Private Sub WriteDashboardSectionHeaders(ByVal dashboardWs As Worksheet, _
+                                         ByVal headerRow As Long, _
+                                         ByVal sectionId As String)
 
     Dim dashboardHeaders As Variant
-
-    dashboardHeaders = Array( _
-        "Tail Number", _
-        "Current Rotation", _
-        "Days to Maint", _
-        "Due This Cycle", _
-        "Due Next Cycle", _
-        "Due Next Maint Cycle", _
-        "Extensions by Week", _
-        "PT2/3s Due", _
-        "Critical Tasks", _
-        "Chart", _
-        "Last Import", _
-        "Reimport" _
-    )
+    dashboardHeaders = GetDashboardSectionHeaders(sectionId)
 
     Dim headerIndex As Long
 
     For headerIndex = LBound(dashboardHeaders) To UBound(dashboardHeaders)
 
-        With dashboardWs.Cells(DASHBOARD_HEADER_ROW, DASHBOARD_FIRST_COL + headerIndex)
+        With dashboardWs.Cells(headerRow, DASHBOARD_FIRST_COL + headerIndex)
             .Value = dashboardHeaders(headerIndex)
             .Font.Name = "Arial"
             .Font.Size = 10
@@ -113,6 +120,88 @@ Public Sub WriteDashboardHeaders(ByVal dashboardWs As Worksheet)
         End With
 
     Next headerIndex
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns dashboard headers for one section.
+'------------------------------------------------------------------------------
+Private Function GetDashboardSectionHeaders(ByVal sectionId As String) As Variant
+
+    Select Case sectionId
+
+        Case DASHBOARD_SECTION_FLYING
+            GetDashboardSectionHeaders = Array( _
+                "Tail Number", _
+                "Current Rotation", _
+                "Days to Maint", _
+                "Due This Week", _
+                "Due Next Week", _
+                "Due Next Maint", _
+                "Extensions by Week", _
+                "PT2/3s Due", _
+                "Critical Tasks", _
+                "Chart", _
+                "Last Import", _
+                "Reimport")
+
+        Case DASHBOARD_SECTION_MAINTENANCE
+            GetDashboardSectionHeaders = Array( _
+                "Tail Number", _
+                "Current Rotation", _
+                "Days to Fly", _
+                "Due This Maint", _
+                "Due Next Fly Week", _
+                "Due Next Maint", _
+                "Extensions by Week", _
+                "PT2/3s Due", _
+                "Critical Tasks", _
+                "Chart", _
+                "Last Import", _
+                "Reimport")
+
+        Case DASHBOARD_SECTION_DOWN
+            GetDashboardSectionHeaders = Array( _
+                "Tail Number", _
+                "Current Rotation", _
+                "ETBOL", _
+                "Due During Down", _
+                "Due Next Fly Week", _
+                "Due After Down", _
+                "Extensions by Week", _
+                "PT2/3s Due", _
+                "Critical Tasks", _
+                "Chart", _
+                "Last Import", _
+                "Reimport")
+
+        Case Else
+            GetDashboardSectionHeaders = Array( _
+                "Tail Number", _
+                "Current Rotation", _
+                "Days to Maint", _
+                "Due This Week", _
+                "Due Next Week", _
+                "Due Next Maint", _
+                "Extensions by Week", _
+                "PT2/3s Due", _
+                "Critical Tasks", _
+                "Chart", _
+                "Last Import", _
+                "Reimport")
+
+    End Select
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Writes and formats dashboard column headers for the legacy single-table layout.
+'------------------------------------------------------------------------------
+Public Sub WriteDashboardHeaders(ByVal dashboardWs As Worksheet)
+
+    WriteDashboardSectionHeaders dashboardWs, DASHBOARD_HEADER_ROW, DASHBOARD_SECTION_FLYING
 
 End Sub
 
@@ -150,12 +239,292 @@ Public Function PrepareDashboard(ByVal maxSlots As Long) As Worksheet
     Set dashboardWs = GetDashboardWorksheet()
 
     ClearDashboardSummary dashboardWs, maxSlots
-    WriteDashboardHeaders dashboardWs
     ApplyDashboardColumnWidths dashboardWs
 
     Set PrepareDashboard = dashboardWs
 
 End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds one aircraft dashboard row record during refresh.
+'------------------------------------------------------------------------------
+Public Function BuildDashboardAircraftRowData(ByVal tailNumber As String, _
+                                              ByVal sortCycleWeek As Long, _
+                                              ByVal currentRotationText As String, _
+                                              ByVal daysToMaintenance As Variant, _
+                                              ByVal chartWs As Worksheet, _
+                                              ByVal importWs As Worksheet, _
+                                              ByRef dashboardBuckets As DashboardSummaryBuckets, _
+                                              ByVal sectionId As String) As DashboardAircraftRowData
+
+    Dim rowData As DashboardAircraftRowData
+
+    rowData.tailNumber = tailNumber
+    rowData.section = sectionId
+    rowData.sortCycleWeek = sortCycleWeek
+    rowData.rotationText = currentRotationText
+    rowData.daysToMaintenance = daysToMaintenance
+    rowData.chartSheetName = chartWs.Name
+    rowData.importSheetName = importWs.Name
+    rowData.buckets = dashboardBuckets
+
+    BuildDashboardAircraftRowData = rowData
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Lays out the dashboard in flying, maintenance, and down sections.
+' Input : dashboardWs - Dashboard worksheet.
+' rowData - populated aircraft dashboard records.
+' rowCount - number of aircraft records.
+' sortOrder - dashboard sort setting.
+' writtenRows - output array of written dashboard rows for button layout.
+' Output : Number of dashboard data rows written.
+'------------------------------------------------------------------------------
+Public Function WriteDashboardSections(ByVal dashboardWs As Worksheet, _
+                                       ByRef rowData() As DashboardAircraftRowData, _
+                                       ByVal rowCount As Long, _
+                                       ByVal sortOrder As String, _
+                                       ByRef writtenRows() As DashboardWrittenRow) As Long
+
+  Dim currentRow As Long
+  currentRow = DASHBOARD_FIRST_LAYOUT_ROW
+
+  Dim writtenCount As Long
+  writtenCount = 0
+
+  ReDim writtenRows(1 To Application.Max(rowCount, 1))
+
+  currentRow = WriteDashboardSectionGroup( _
+      dashboardWs, _
+      rowData, _
+      rowCount, _
+      sortOrder, _
+      DASHBOARD_SECTION_FLYING, _
+      "Flying Aircraft", _
+      currentRow, _
+      writtenRows, _
+      writtenCount)
+
+  currentRow = WriteDashboardSectionGroup( _
+      dashboardWs, _
+      rowData, _
+      rowCount, _
+      sortOrder, _
+      DASHBOARD_SECTION_MAINTENANCE, _
+      "Maintenance Period Aircraft", _
+      currentRow, _
+      writtenRows, _
+      writtenCount)
+
+  currentRow = WriteDashboardSectionGroup( _
+      dashboardWs, _
+      rowData, _
+      rowCount, _
+      sortOrder, _
+      DASHBOARD_SECTION_DOWN, _
+      "Down Aircraft", _
+      currentRow, _
+      writtenRows, _
+      writtenCount)
+
+  If writtenCount = 0 Then
+      ReDim writtenRows(1 To 1)
+      writtenRows(1).dashboardRow = 0
+      writtenRows(1).tailNumber = vbNullString
+  Else
+      ReDim Preserve writtenRows(1 To writtenCount)
+  End If
+
+  WriteDashboardSections = writtenCount
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Writes one dashboard section when it contains aircraft.
+'------------------------------------------------------------------------------
+Private Function WriteDashboardSectionGroup(ByVal dashboardWs As Worksheet, _
+                                            ByRef rowData() As DashboardAircraftRowData, _
+                                            ByVal rowCount As Long, _
+                                            ByVal sortOrder As String, _
+                                            ByVal sectionId As String, _
+                                            ByVal sectionTitle As String, _
+                                            ByVal startRow As Long, _
+                                            ByRef writtenRows() As DashboardWrittenRow, _
+                                            ByRef writtenCount As Long) As Long
+
+  Dim sectionIndexes() As Long
+  Dim sectionCount As Long
+
+  sectionCount = CollectDashboardSectionIndexes(rowData, rowCount, sectionId, sectionIndexes)
+
+  If sectionCount = 0 Then
+      WriteDashboardSectionGroup = startRow
+      Exit Function
+  End If
+
+  SortDashboardSectionIndexes rowData, sectionIndexes, sectionCount, sortOrder
+
+  Dim titleRow As Long
+  Dim headerRow As Long
+  Dim firstDataRow As Long
+
+  titleRow = startRow
+  headerRow = startRow + 1
+  firstDataRow = headerRow + 1
+
+  WriteDashboardSectionTitle dashboardWs, titleRow, sectionTitle, sectionCount
+  WriteDashboardSectionHeaders dashboardWs, headerRow, sectionId
+
+  Dim sectionIndex As Long
+  Dim dashboardRow As Long
+
+  For sectionIndex = 1 To sectionCount
+
+      dashboardRow = firstDataRow + sectionIndex - 1
+
+      WriteAircraftDashboardRowAt _
+          dashboardWs, _
+          dashboardRow, _
+          rowData(sectionIndexes(sectionIndex))
+
+      writtenCount = writtenCount + 1
+      writtenRows(writtenCount).dashboardRow = dashboardRow
+      writtenRows(writtenCount).tailNumber = rowData(sectionIndexes(sectionIndex)).tailNumber
+
+  Next sectionIndex
+
+  WriteDashboardSectionGroup = firstDataRow + sectionCount + DASHBOARD_SECTION_SPACER_ROWS
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Collects indexes for one dashboard section.
+'------------------------------------------------------------------------------
+Private Function CollectDashboardSectionIndexes(ByRef rowData() As DashboardAircraftRowData, _
+                                                ByVal rowCount As Long, _
+                                                ByVal sectionId As String, _
+                                                ByRef sectionIndexes() As Long) As Long
+
+  ReDim sectionIndexes(1 To rowCount)
+
+  Dim rowIndex As Long
+  Dim sectionCount As Long
+
+  For rowIndex = 1 To rowCount
+      If StrComp(rowData(rowIndex).section, sectionId, vbTextCompare) = 0 Then
+          sectionCount = sectionCount + 1
+          sectionIndexes(sectionCount) = rowIndex
+      End If
+  Next rowIndex
+
+  If sectionCount > 0 Then
+      ReDim Preserve sectionIndexes(1 To sectionCount)
+  Else
+      ReDim sectionIndexes(1 To 1)
+  End If
+
+  CollectDashboardSectionIndexes = sectionCount
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Sorts dashboard section indexes by tail number or cycle week.
+'------------------------------------------------------------------------------
+Private Sub SortDashboardSectionIndexes(ByRef rowData() As DashboardAircraftRowData, _
+                                        ByRef sectionIndexes() As Long, _
+                                        ByVal sectionCount As Long, _
+                                        ByVal sortOrder As String)
+
+  If sectionCount <= 1 Then Exit Sub
+
+  Dim firstIndex As Long
+  Dim secondIndex As Long
+
+  For firstIndex = 1 To sectionCount - 1
+      For secondIndex = firstIndex + 1 To sectionCount
+
+          Dim shouldSwap As Boolean
+          shouldSwap = ShouldSwapDashboardRows( _
+              rowData(sectionIndexes(firstIndex)), _
+              rowData(sectionIndexes(secondIndex)), _
+              sortOrder)
+
+          If shouldSwap Then
+              Dim tempIndex As Long
+              tempIndex = sectionIndexes(firstIndex)
+              sectionIndexes(firstIndex) = sectionIndexes(secondIndex)
+              sectionIndexes(secondIndex) = tempIndex
+          End If
+
+      Next secondIndex
+  Next firstIndex
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Compares two dashboard rows for section sorting.
+'------------------------------------------------------------------------------
+Private Function ShouldSwapDashboardRows(ByRef firstRow As DashboardAircraftRowData, _
+                                         ByRef secondRow As DashboardAircraftRowData, _
+                                         ByVal sortOrder As String) As Boolean
+
+  If StrComp(sortOrder, DASHBOARD_SORT_CYCLE, vbTextCompare) = 0 Then
+      If firstRow.sortCycleWeek < secondRow.sortCycleWeek Then Exit Function
+      If firstRow.sortCycleWeek > secondRow.sortCycleWeek Then
+          ShouldSwapDashboardRows = True
+          Exit Function
+      End If
+  End If
+
+  ShouldSwapDashboardRows = _
+      (StrComp(UCase$(firstRow.tailNumber), UCase$(secondRow.tailNumber), vbTextCompare) > 0)
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Writes a merged section title row.
+'------------------------------------------------------------------------------
+Private Sub WriteDashboardSectionTitle(ByVal dashboardWs As Worksheet, _
+                                       ByVal titleRow As Long, _
+                                       ByVal sectionTitle As String, _
+                                       ByVal aircraftCount As Long)
+
+  Dim titleRange As Range
+  Set titleRange = dashboardWs.Range( _
+      dashboardWs.Cells(titleRow, DASHBOARD_FIRST_COL), _
+      dashboardWs.Cells(titleRow, DASHBOARD_LAST_COL))
+
+  On Error Resume Next
+  titleRange.UnMerge
+  On Error GoTo 0
+
+  With titleRange
+      .ClearContents
+      .Merge
+      .Value = sectionTitle & " (" & CStr(aircraftCount) & ")"
+      .Font.Name = "Arial"
+      .Font.Size = 11
+      .Font.Bold = True
+      .Font.Color = RGB(0, 0, 0)
+      .Interior.Color = DASHBOARD_SECTION_TITLE_GREY
+      .HorizontalAlignment = xlLeft
+      .VerticalAlignment = xlCenter
+      .WrapText = False
+      .Borders.LineStyle = xlContinuous
+      .Borders.Color = RGB(200, 200, 200)
+  End With
+
+  dashboardWs.Rows(titleRow).RowHeight = 22
+
+End Sub
 
 
 '------------------------------------------------------------------------------
@@ -215,86 +584,76 @@ End Sub
 
 
 '------------------------------------------------------------------------------
-' Purpose : Creates Reimport buttons for each dashboard aircraft row.
-' Input : dashboardWs - Dashboard worksheet.
-' tailNumbers - active aircraft tail numbers.
-' aircraftCount - number of aircraft in the roster.
-' Notes : Called after row heights are finalised during RefreshAll.
+' Purpose : Creates Reimport buttons for each written dashboard aircraft row.
 '------------------------------------------------------------------------------
 Public Sub LayoutDashboardReimportButtons(ByVal dashboardWs As Worksheet, _
-                                          ByRef tailNumbers() As String, _
-                                          ByVal aircraftCount As Long)
+                                          ByRef writtenRows() As DashboardWrittenRow, _
+                                          ByVal writtenRowCount As Long)
 
     ClearDashboardReimportButtons dashboardWs
 
-    Dim aircraftIndex As Long
+    Dim rowIndex As Long
 
-    For aircraftIndex = 1 To aircraftCount
-        AddDashboardReimportButton _
-            dashboardWs, _
-            DASHBOARD_HEADER_ROW + aircraftIndex, _
-            tailNumbers(aircraftIndex)
-    Next aircraftIndex
+    For rowIndex = 1 To writtenRowCount
+
+        If writtenRows(rowIndex).dashboardRow > 0 Then
+            AddDashboardReimportButton _
+                dashboardWs, _
+                writtenRows(rowIndex).dashboardRow, _
+                writtenRows(rowIndex).tailNumber
+        End If
+
+    Next rowIndex
 
 End Sub
 
 
 '------------------------------------------------------------------------------
-' Purpose : Writes one aircraft row to the Dashboard sheet.
-' Input : dashboardWs - Dashboard worksheet.
-' aircraftIndex - aircraft index within the active roster.
-' tailNumber - aircraft tail number.
-' currentRotationText - current flying/maintenance status.
-' daysToMaintenance - days to next maintenance or ETBOL text.
-' chartWs - aircraft chart worksheet.
-' importWs - aircraft import worksheet.
-' dashboardBuckets - populated dashboard summary buckets.
+' Purpose : Writes one aircraft row to the Dashboard sheet at a specific row.
 '------------------------------------------------------------------------------
-Public Sub WriteAircraftDashboardRow(ByVal dashboardWs As Worksheet, _
-                                     ByVal aircraftIndex As Long, _
-                                     ByVal tailNumber As String, _
-                                     ByVal currentRotationText As String, _
-                                     ByVal daysToMaintenance As Variant, _
-                                     ByVal chartWs As Worksheet, _
-                                     ByVal importWs As Worksheet, _
-                                     ByRef dashboardBuckets As DashboardSummaryBuckets)
+Public Sub WriteAircraftDashboardRowAt(ByVal dashboardWs As Worksheet, _
+                                       ByVal dashboardRow As Long, _
+                                       ByRef rowData As DashboardAircraftRowData)
 
-    Dim dashboardRow As Long
-    dashboardRow = DASHBOARD_HEADER_ROW + aircraftIndex
+    Dim chartWs As Worksheet
+    Dim importWs As Worksheet
 
-    dashboardWs.Cells(dashboardRow, 1).Value = tailNumber
-    dashboardWs.Cells(dashboardRow, 2).Value = currentRotationText
-    dashboardWs.Cells(dashboardRow, 3).Value = daysToMaintenance
+    Set chartWs = ThisWorkbook.Worksheets(rowData.chartSheetName)
+    Set importWs = ThisWorkbook.Worksheets(rowData.importSheetName)
+
+    dashboardWs.Cells(dashboardRow, 1).Value = rowData.tailNumber
+    dashboardWs.Cells(dashboardRow, 2).Value = rowData.rotationText
+    dashboardWs.Cells(dashboardRow, 3).Value = rowData.daysToMaintenance
 
     Dim dueBeforeSummary As Object
     Dim dueBeforeDetails As Object
-    Set dueBeforeSummary = dashboardBuckets.DueThisCycle.Summary
-    Set dueBeforeDetails = dashboardBuckets.DueThisCycle.Details
+    Set dueBeforeSummary = rowData.buckets.DueThisCycle.Summary
+    Set dueBeforeDetails = rowData.buckets.DueThisCycle.Details
 
     Dim maintenanceSummary As Object
     Dim maintenanceDetails As Object
-    Set maintenanceSummary = dashboardBuckets.DueNextCycle.Summary
-    Set maintenanceDetails = dashboardBuckets.DueNextCycle.Details
+    Set maintenanceSummary = rowData.buckets.DueNextCycle.Summary
+    Set maintenanceDetails = rowData.buckets.DueNextCycle.Details
     
     Dim nextMaintenanceSummary As Object
     Dim nextMaintenanceDetails As Object
-    Set nextMaintenanceSummary = dashboardBuckets.DueNextMaintenanceCycle.Summary
-    Set nextMaintenanceDetails = dashboardBuckets.DueNextMaintenanceCycle.Details
+    Set nextMaintenanceSummary = rowData.buckets.DueNextMaintenanceCycle.Summary
+    Set nextMaintenanceDetails = rowData.buckets.DueNextMaintenanceCycle.Details
 
     Dim extensionSummary As Object
     Dim extensionDetails As Object
-    Set extensionSummary = dashboardBuckets.ExtensionsRequired.Summary
-    Set extensionDetails = dashboardBuckets.ExtensionsRequired.Details
+    Set extensionSummary = rowData.buckets.ExtensionsRequired.Summary
+    Set extensionDetails = rowData.buckets.ExtensionsRequired.Details
 
     Dim deferredFaultSummary As Object
     Dim deferredFaultDetails As Object
-    Set deferredFaultSummary = dashboardBuckets.DeferredFaultsDue.Summary
-    Set deferredFaultDetails = dashboardBuckets.DeferredFaultsDue.Details
+    Set deferredFaultSummary = rowData.buckets.DeferredFaultsDue.Summary
+    Set deferredFaultDetails = rowData.buckets.DeferredFaultsDue.Details
 
     Dim criticalSummary As Object
     Dim criticalDetails As Object
-    Set criticalSummary = dashboardBuckets.CriticalTasks.Summary
-    Set criticalDetails = dashboardBuckets.CriticalTasks.Details
+    Set criticalSummary = rowData.buckets.CriticalTasks.Summary
+    Set criticalDetails = rowData.buckets.CriticalTasks.Details
 
     WriteDashboardSummaryCell dashboardWs.Cells(dashboardRow, 4), dueBeforeSummary, dueBeforeDetails
     WriteDashboardSummaryCell dashboardWs.Cells(dashboardRow, 5), maintenanceSummary, maintenanceDetails
@@ -832,7 +1191,7 @@ Private Sub FormatAircraftDashboardRow(ByVal dashboardWs As Worksheet, _
     dashboardWs.Cells(dashboardRow, 11).HorizontalAlignment = xlCenter
     dashboardWs.Cells(dashboardRow, 12).HorizontalAlignment = xlCenter
 
-    dashboardWs.Rows(dashboardRow).RowHeight = 48
+    dashboardWs.Rows(dashboardRow).RowHeight = 66
 
 End Sub
 

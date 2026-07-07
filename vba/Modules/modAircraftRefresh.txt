@@ -8,20 +8,19 @@ Option Explicit
 
 
 '------------------------------------------------------------------------------
-' Purpose : Refreshes one aircraft's task occurrences, chart, and dashboard row.
+' Purpose : Refreshes one aircraft's task occurrences and chart, returning dashboard row data.
 ' Input : aircraftIndex - index within the active aircraft roster.
 ' roster - loaded aircraft roster.
 ' settings - validated planner settings.
 ' rates - planner flying rates.
 ' weekStartDates - display week start dates.
-' dashboardWs - Dashboard worksheet.
+' Output : DashboardAircraftRowData for deferred dashboard layout.
 '------------------------------------------------------------------------------
-Public Sub RefreshAircraftAtIndex(ByVal aircraftIndex As Long, _
+Public Function RefreshAircraftAtIndex(ByVal aircraftIndex As Long, _
                               ByRef roster As aircraftRoster, _
                               ByRef settings As PlannerSettings, _
                               ByRef rates As plannerRates, _
-                              ByRef weekStartDates() As Date, _
-                              ByVal dashboardWs As Worksheet)
+                              ByRef weekStartDates() As Date) As DashboardAircraftRowData
 
     Dim tailNumber As String
     tailNumber = roster.tailNumbers(aircraftIndex)
@@ -161,17 +160,22 @@ Public Sub RefreshAircraftAtIndex(ByVal aircraftIndex As Long, _
         isDownMaintenance, _
         rtsFlyStart
 
-    WriteAircraftDashboardRow _
-        dashboardWs, _
-        aircraftIndex, _
+    RefreshAircraftAtIndex = BuildDashboardAircraftRowData( _
         tailNumber, _
+        roster.cycleStarts(aircraftIndex), _
         aircraftStatus.RotationText, _
         maintenanceStatus.daysToMaintenance, _
         chartWs, _
         importWs, _
-        dashboardBuckets
+        dashboardBuckets, _
+        GetDashboardAircraftSection( _
+            isDownMaintenance, _
+            rtsFlyStart, _
+            weekCyclePositions, _
+            aircraftStatus.currentWeekIndex, _
+            settings.flyingWeeks))
 
-End Sub
+End Function
 
 
 '------------------------------------------------------------------------------

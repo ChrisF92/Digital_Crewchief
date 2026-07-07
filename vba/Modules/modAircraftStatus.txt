@@ -139,6 +139,38 @@ End Function
 
 
 '------------------------------------------------------------------------------
+' Purpose : Determines which dashboard section an aircraft belongs in.
+' Notes :
+' Down = long-term down maintenance before ETBOL/RTS.
+' Maintenance = in-cycle aircraft currently in a scheduled maintenance week.
+' Flying = all other aircraft, including post-ETBOL down aircraft in a fly week.
+'------------------------------------------------------------------------------
+Public Function GetDashboardAircraftSection(ByVal isDownMaintenance As Boolean, _
+                                            ByVal rtsFlyStart As Date, _
+                                            ByRef weekCyclePositions() As Long, _
+                                            ByVal currentWeekIndex As Long, _
+                                            ByVal flyingWeeks As Long) As String
+
+    If isDownMaintenance Then
+        If Date < rtsFlyStart Then
+            GetDashboardAircraftSection = DASHBOARD_SECTION_DOWN
+            Exit Function
+        End If
+    End If
+
+    If IsDisplayWeekIndexValid(currentWeekIndex, UBound(weekCyclePositions)) Then
+        If weekCyclePositions(currentWeekIndex) > flyingWeeks Then
+            GetDashboardAircraftSection = DASHBOARD_SECTION_MAINTENANCE
+            Exit Function
+        End If
+    End If
+
+    GetDashboardAircraftSection = DASHBOARD_SECTION_FLYING
+
+End Function
+
+
+'------------------------------------------------------------------------------
 ' Purpose : Converts a cycle position into dashboard display text.
 ' Input : cyclePosition - position within the flying/maintenance cycle.
 ' flyingWeeks - number of flying weeks in the cycle.

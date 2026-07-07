@@ -42,3 +42,8 @@ Public Const COMMENT_COL_WIDTH As Long = 55
 Public Const DASHBOARD_SORT_TAIL As String = "Tail Number"
 Public Const DASHBOARD_SORT_CYCLE As String = "Cycle Week"
 
+' --- Dashboard section identifiers ---
+Public Const DASHBOARD_SECTION_FLYING As String = "FLYING"
+Public Const DASHBOARD_SECTION_MAINTENANCE As String = "MAINTENANCE"
+Public Const DASHBOARD_SECTION_DOWN As String = "DOWN"
+

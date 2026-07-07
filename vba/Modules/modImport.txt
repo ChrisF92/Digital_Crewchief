@@ -416,18 +416,20 @@ Public Sub ReimportFromDashboardButton()
     Dim dashboardRow As Long
     dashboardRow = dashboardButton.TopLeftCell.Row
 
-    If dashboardRow <= DASHBOARD_HEADER_ROW Then
-        MsgBox "Could not identify the aircraft from this dashboard button.", _
-               vbExclamation, "Reimport"
-        Exit Sub
-    End If
-
     Dim tailNumber As String
     tailNumber = Trim$(CStr(dashboardWs.Cells(dashboardRow, 1).Value))
 
-    If Len(tailNumber) = 0 Then
-        MsgBox "Could not identify the aircraft tail number from this dashboard button.", _
-               vbExclamation, "Reimport"
+    If Len(tailNumber) = 0 Or InStr(tailNumber, "Aircraft (") > 0 Then
+        MsgBox "Could not identify the aircraft from this dashboard button.", _
+               vbExclamation, _
+               "Reimport"
+        Exit Sub
+    End If
+
+    If dashboardRow <= DASHBOARD_BANNER_ROW Then
+        MsgBox "Could not identify the aircraft from this dashboard button.", _
+               vbExclamation, _
+               "Reimport"
         Exit Sub
     End If
 
