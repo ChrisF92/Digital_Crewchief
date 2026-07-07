@@ -104,7 +104,6 @@ Public Sub SafeAddComment(targetCell As Range, commentText As String)
     With commentShape
         With .TextFrame
             .AutoSize = False
-            .WordWrap = msoTrue
 
             With .Characters.Font
                 .Name = "Arial"
