@@ -10,6 +10,7 @@ Private Const COMMENT_BULLET As String = "• "
 Private Const SECTION_EXTENSIONS As String = "EXTENSIONS TO RAISE"
 Private Const SECTION_SCHEDULED As String = "SCHEDULED THIS WEEK"
 Private Const SECTION_DUE As String = "DUE"
+Private Const MAX_BULLET_LINE_LEN As Long = 120
 
 
 '------------------------------------------------------------------------------
@@ -23,17 +24,110 @@ End Function
 
 
 '------------------------------------------------------------------------------
+' Purpose : Returns imported extension percent unless the task was reforecasted.
+'------------------------------------------------------------------------------
+Public Function GetEffectiveExistingExtensionPercent(ByRef occurrence As TaskOccurrence) As Double
+
+    If occurrence.wasAutoPushed Or occurrence.wasAutoPulled Then
+        GetEffectiveExistingExtensionPercent = 0
+    Else
+        GetEffectiveExistingExtensionPercent = occurrence.existingExtensionPercent
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns imported extension amount unless the task was reforecasted.
+'------------------------------------------------------------------------------
+Public Function GetEffectiveExistingExtensionAmount(ByRef occurrence As TaskOccurrence) As Double
+
+    If occurrence.wasAutoPushed Or occurrence.wasAutoPulled Then
+        GetEffectiveExistingExtensionAmount = 0
+    Else
+        GetEffectiveExistingExtensionAmount = occurrence.existingExtensionAmount
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Formats an extension or interval amount for comment display.
+'------------------------------------------------------------------------------
+Public Function FormatExtensionAmount(ByRef occurrence As TaskOccurrence, _
+                                      ByVal amount As Double) As String
+
+    If occurrence.intervalType = "DD" Then
+        If amount = Int(amount) Then
+            FormatExtensionAmount = CStr(CLng(amount))
+        Else
+            FormatExtensionAmount = Format$(amount, "0.##")
+        End If
+    Else
+        FormatExtensionAmount = FormatHoursToHMM(amount)
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
 ' Purpose : Builds the task code and description label for a comment bullet.
 '------------------------------------------------------------------------------
 Public Function BuildOccurrenceTaskLabel(ByRef occurrence As TaskOccurrence) As String
 
+    BuildOccurrenceTaskLabel = BuildOccurrenceTaskLabelWithMaxDesc(occurrence, MAX_DESC_LEN)
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds a task label with the description truncated to a max length.
+'------------------------------------------------------------------------------
+Private Function BuildOccurrenceTaskLabelWithMaxDesc(ByRef occurrence As TaskOccurrence, _
+                                                     ByVal maxDescLen As Long) As String
+
     If occurrence.isHighlighted Then
-        BuildOccurrenceTaskLabel = occurrence.taskCode & " — " & _
-                                   TruncateDesc(occurrence.taskDescription) & " [Critical]"
+        BuildOccurrenceTaskLabelWithMaxDesc = occurrence.taskCode & " — " & _
+                                              TruncateDesc(occurrence.taskDescription, maxDescLen) & _
+                                              " [Critical]"
     Else
-        BuildOccurrenceTaskLabel = occurrence.taskCode & " — " & _
-                                   TruncateDesc(occurrence.taskDescription)
+        BuildOccurrenceTaskLabelWithMaxDesc = occurrence.taskCode & " — " & _
+                                              TruncateDesc(occurrence.taskDescription, maxDescLen)
     End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds one comment bullet truncated to a single display line.
+'------------------------------------------------------------------------------
+Private Function BuildSingleLineBullet(ByRef occurrence As TaskOccurrence, _
+                                       ByVal tailText As String) As String
+
+    Dim criticalTag As String
+    Dim fixedLength As Long
+    Dim maxDescLen As Long
+
+    If occurrence.isHighlighted Then
+        criticalTag = " [Critical]"
+    Else
+        criticalTag = vbNullString
+    End If
+
+    fixedLength = Len(COMMENT_BULLET) + _
+                  Len(occurrence.taskCode) + _
+                  Len(" — ") + _
+                  Len(criticalTag) + _
+                  Len(" | ") + _
+                  Len(tailText)
+
+    maxDescLen = MAX_BULLET_LINE_LEN - fixedLength
+
+    If maxDescLen < 8 Then maxDescLen = 8
+
+    BuildSingleLineBullet = COMMENT_BULLET & _
+                            BuildOccurrenceTaskLabelWithMaxDesc(occurrence, maxDescLen) & _
+                            " | " & tailText
 
 End Function
 
@@ -92,71 +186,72 @@ End Function
 '------------------------------------------------------------------------------
 Public Function FormatOccurrenceExtensionAddedAmount(ByRef occurrence As TaskOccurrence) As String
 
-    Dim extensionAmount As Double
-    extensionAmount = GetOccurrenceExtensionAddedAmount(occurrence)
-
-    If occurrence.intervalType = "DD" Then
-        If extensionAmount = Int(extensionAmount) Then
-            FormatOccurrenceExtensionAddedAmount = CStr(CLng(extensionAmount)) & " days"
-        Else
-            FormatOccurrenceExtensionAddedAmount = Format$(extensionAmount, "0.##") & " days"
-        End If
-    Else
-        FormatOccurrenceExtensionAddedAmount = FormatHoursToHMM(extensionAmount) & " hrs"
-    End If
+    FormatOccurrenceExtensionAddedAmount = _
+        FormatExtensionAmount(occurrence, GetOccurrenceExtensionAddedAmount(occurrence))
 
 End Function
 
 
 '------------------------------------------------------------------------------
-' Purpose : Builds the extension summary text for one occurrence.
+' Purpose : Builds the raise-row/dashboard extension summary for one occurrence.
 '------------------------------------------------------------------------------
-Public Function BuildOccurrenceExtensionSummaryText(ByRef occurrence As TaskOccurrence) As String
+Public Function BuildExtensionRaiseSummaryText(ByRef occurrence As TaskOccurrence) As String
 
-    Dim summaryText As String
+    Dim existingPercent As Double
+    Dim existingAmount As Double
+    Dim totalPercent As Double
+    Dim totalAmount As Double
 
-    summaryText = "Extended " & FormatOccurrenceExtensionAddedAmount(occurrence) & _
-                  " (" & FormatOccurrencePercent(occurrence.extensionPercentUsed) & _
-                  ") to Maint"
+    existingPercent = GetEffectiveExistingExtensionPercent(occurrence)
+    existingAmount = GetEffectiveExistingExtensionAmount(occurrence)
+    totalPercent = existingPercent + occurrence.extensionPercentUsed
+    totalAmount = totalPercent * occurrence.intervalValue
 
-    If occurrence.existingExtensionPercent > 0 Then
-
-        Dim totalPercent As Double
-        Dim totalAmount As Double
-
-        totalPercent = occurrence.existingExtensionPercent + occurrence.extensionPercentUsed
-        totalAmount = totalPercent * occurrence.intervalValue
-
-        If occurrence.intervalType = "DD" Then
-            summaryText = summaryText & " | Total ext " & _
-                          Format$(totalAmount, "0.##") & " days (" & _
-                          FormatOccurrencePercent(totalPercent) & _
-                          "); imported ext " & _
-                          Format$(occurrence.existingExtensionAmount, "0.##") & " days"
-        Else
-            summaryText = summaryText & " | Total ext " & _
-                          FormatHoursToHMM(totalAmount) & " hrs (" & _
-                          FormatOccurrencePercent(totalPercent) & _
-                          "); imported ext " & _
-                          Format$(occurrence.existingExtensionAmount, "0.##") & " hrs"
-        End If
-
-    End If
-
-    BuildOccurrenceExtensionSummaryText = summaryText
+    BuildExtensionRaiseSummaryText = _
+        "Extend by " & FormatOccurrenceExtensionAddedAmount(occurrence) & _
+        " (" & FormatOccurrencePercent(occurrence.extensionPercentUsed) & ")" & _
+        " | Existing Extension " & FormatExtensionAmount(occurrence, existingAmount) & _
+        " (" & FormatOccurrencePercent(existingPercent) & ")" & _
+        " | Total Extension " & FormatExtensionAmount(occurrence, totalAmount) & _
+        " (" & FormatOccurrencePercent(totalPercent) & ")"
 
 End Function
 
 
 '------------------------------------------------------------------------------
-' Purpose : Builds a bullet for an extension that must be raised.
+' Purpose : Builds the chart-cell extension summary for one occurrence.
+'------------------------------------------------------------------------------
+Public Function BuildChartCellExtensionSummaryText(ByRef occurrence As TaskOccurrence) As String
+
+    BuildChartCellExtensionSummaryText = _
+        "Extended by " & FormatOccurrenceExtensionAddedAmount(occurrence) & _
+        " (" & FormatOccurrencePercent(occurrence.extensionPercentUsed) & ") into maint"
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds a bullet for dashboard/chart row extension-raise summaries.
 '------------------------------------------------------------------------------
 Public Function BuildExtensionRaiseBullet(ByRef occurrence As TaskOccurrence) As String
 
-    BuildExtensionRaiseBullet = COMMENT_BULLET & BuildOccurrenceTaskLabel(occurrence) & _
-                                " | Raise by " & Format$(occurrence.originalWeek, "DD/MM/YYYY") & _
-                                " | [EXT. REQ. FOR " & Format$(occurrence.originalWeek, "DD/MM/YYYY") & _
-                                "] | " & BuildOccurrenceExtensionSummaryText(occurrence)
+    BuildExtensionRaiseBullet = BuildSingleLineBullet( _
+        occurrence, _
+        "Raise by " & Format$(occurrence.originalWeek, "DD/MM/YYYY") & _
+        " | " & BuildExtensionRaiseSummaryText(occurrence))
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds a bullet for chart-cell EXTENSIONS TO RAISE sections.
+'------------------------------------------------------------------------------
+Public Function BuildChartCellExtensionBullet(ByRef occurrence As TaskOccurrence) As String
+
+    BuildChartCellExtensionBullet = BuildSingleLineBullet( _
+        occurrence, _
+        "[EXT. REQ. BY] " & Format$(occurrence.originalWeek, "DD/MM/YYYY") & _
+        " | " & BuildChartCellExtensionSummaryText(occurrence))
 
 End Function
 
@@ -166,26 +261,25 @@ End Function
 '------------------------------------------------------------------------------
 Public Function BuildOccurrenceScheduledBullet(ByRef occurrence As TaskOccurrence) As String
 
-    Dim bulletText As String
+    Dim tailText As String
 
-    bulletText = COMMENT_BULLET & BuildOccurrenceTaskLabel(occurrence) & _
-                 " | " & BuildOccurrenceTimeRemainingText(occurrence)
+    tailText = BuildOccurrenceTimeRemainingText(occurrence)
 
     If occurrence.GroupedDirection = -1 Then
-        bulletText = bulletText & " | Aligned earlier by " & _
-                     FormatOccurrenceGroupedAlignmentAmount(occurrence)
+        tailText = tailText & " | Aligned earlier by " & _
+                   FormatOccurrenceGroupedAlignmentAmount(occurrence)
     ElseIf occurrence.GroupedDirection = 1 Then
-        bulletText = bulletText & " | Aligned later by " & _
-                     FormatOccurrenceGroupedAlignmentAmount(occurrence)
+        tailText = tailText & " | Aligned later by " & _
+                   FormatOccurrenceGroupedAlignmentAmount(occurrence)
     End If
 
     If occurrence.wasAutoPulled Then
-        bulletText = bulletText & " | Pulled " & FormatOccurrencePullAmount(occurrence) & _
-                     " (" & FormatOccurrencePercent(occurrence.pullPercentUsed) & _
-                     ") to Maint"
+        tailText = tailText & " | Pulled " & FormatOccurrencePullAmount(occurrence) & _
+                   " (" & FormatOccurrencePercent(occurrence.pullPercentUsed) & _
+                   ") to Maint"
     End If
 
-    BuildOccurrenceScheduledBullet = bulletText
+    BuildOccurrenceScheduledBullet = BuildSingleLineBullet(occurrence, tailText)
 
 End Function
 

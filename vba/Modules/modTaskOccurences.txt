@@ -32,6 +32,7 @@ Public Type TaskOccurrence
     lifeRemaining As Double
 
     GroupedDirection As Long
+    groupedAlignmentAmount As Double
 
     wasAutoPushed As Boolean
     extensionPercentUsed As Double
@@ -122,6 +123,7 @@ Public Function BuildTaskOccurrence(ByVal serialNumber As String, _
     occurrence.firstDueDate = firstDueDate
 
     occurrence.GroupedDirection = 0
+    occurrence.groupedAlignmentAmount = 0
 
     occurrence.wasAutoPushed = wasAutoPushed
     occurrence.extensionPercentUsed = extensionPercentUsed

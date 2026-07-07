@@ -154,7 +154,7 @@ Private Sub AddOccurrenceToChartAggregation(ByRef aggregation As ChartCellAggreg
 
     If occurrence.wasAutoPushed Then
         extensionCount = extensionCount + 1
-        AppendCommentBullet extensionBullets, BuildExtensionRaiseBullet(occurrence)
+        AppendCommentBullet extensionBullets, BuildChartCellExtensionBullet(occurrence)
         aggregation.CellExtensionCounts(cellKey) = extensionCount
         aggregation.CellExtensionBullets(cellKey) = extensionBullets
         aggregation.CellPushed(cellKey) = True
@@ -211,7 +211,7 @@ End Function
 Public Function BuildChartOccurrenceCommentLine(ByRef occurrence As TaskOccurrence) As String
 
     If occurrence.wasAutoPushed Then
-        BuildChartOccurrenceCommentLine = BuildExtensionRaiseBullet(occurrence)
+        BuildChartOccurrenceCommentLine = BuildChartCellExtensionBullet(occurrence)
     Else
         BuildChartOccurrenceCommentLine = BuildOccurrenceScheduledBullet(occurrence)
     End If
@@ -406,7 +406,7 @@ Private Sub WriteOneAggregatedChartCell(ByVal chartWs As Worksheet, _
         aggregation
 
     Dim taskText As String
-    taskText = CapCommentLength(BuildChartCellStructuredComment(cellKey, aggregation))
+    taskText = BuildChartCellStructuredComment(cellKey, aggregation)
 
     SafeAddComment chartWs.Cells(chartRow, chartColumn), taskText
 
@@ -619,7 +619,7 @@ Private Sub MergeOneChartMaintenanceBlock(ByVal chartWs As Worksheet, _
     If Len(mergedCommentText) > 0 Then
         SafeAddComment _
             chartWs.Cells(chartRow, startColumn), _
-            CapCommentLength(CStr(mergedTaskCount) & " task(s):" & vbLf & mergedCommentText)
+            CStr(mergedTaskCount) & " task(s):" & vbLf & mergedCommentText
     End If
 
 End Sub
@@ -720,20 +720,6 @@ End Sub
 
 
 '------------------------------------------------------------------------------
-' Purpose : Removes the "x task(s):" header from an existing chart comment.
-'------------------------------------------------------------------------------
-Private Function RemoveChartCommentHeader(ByVal commentText As String, _
-                                          ByVal taskCountText As String) As String
-
-    Dim headerText As String
-    headerText = taskCountText & " task(s):" & vbLf
-
-    RemoveChartCommentHeader = Replace(commentText, headerText, vbNullString)
-
-End Function
-
-
-'------------------------------------------------------------------------------
 ' Purpose : Writes the per-week extension-due summary row on an aircraft chart.
 ' Input : chartWs - aircraft chart worksheet.
 ' taskOccurrences - populated task occurrence records.
@@ -805,11 +791,11 @@ Public Sub WriteChartExtensionDueRow(ByVal chartWs As Worksheet, _
             End With
 
             If weekDetails.Exists(weekKey) Then
-                SafeAddComment targetCell, CapCommentLength( _
+                SafeAddComment targetCell, _
                     BuildExtensionDueWeekComment( _
                         CLng(weekCounts(weekKey)), _
                         weekKey, _
-                        CStr(weekDetails(weekKey))))
+                        CStr(weekDetails(weekKey)))
             End If
 
         End If

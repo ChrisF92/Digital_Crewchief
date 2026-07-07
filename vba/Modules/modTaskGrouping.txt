@@ -20,6 +20,7 @@ Public Sub ApplyTaskGrouping(ByRef taskOccurrences() As TaskOccurrence, _
                              ByVal totalOccurrences As Long, _
                              ByVal groupingTolerance As Double, _
                              ByRef settings As PlannerSettings, _
+                             ByRef weekStartDates() As Date, _
                              ByRef weekHHRates() As Double, _
                              ByRef weekE1Rates() As Double, _
                              ByRef weekE2Rates() As Double)
@@ -41,6 +42,7 @@ Public Sub ApplyTaskGrouping(ByRef taskOccurrences() As TaskOccurrence, _
             CDbl(groupDictionary(groupKey)), _
             groupingTolerance, _
             settings, _
+            weekStartDates, _
             weekHHRates, _
             weekE1Rates, _
             weekE2Rates
@@ -96,6 +98,7 @@ Private Sub ApplyGroupingForOneKey(ByRef taskOccurrences() As TaskOccurrence, _
                                    ByVal groupInterval As Double, _
                                    ByVal groupingTolerance As Double, _
                                    ByRef settings As PlannerSettings, _
+                                   ByRef weekStartDates() As Date, _
                                    ByRef weekHHRates() As Double, _
                                    ByRef weekE1Rates() As Double, _
                                    ByRef weekE2Rates() As Double)
@@ -128,7 +131,13 @@ Private Sub ApplyGroupingForOneKey(ByRef taskOccurrences() As TaskOccurrence, _
         taskOccurrences, _
         groupedIndexes, _
         groupedCount, _
-        toleranceDays
+        toleranceDays, _
+        groupIntervalType, _
+        settings.displayWeeksShown, _
+        weekStartDates, _
+        weekHHRates, _
+        weekE1Rates, _
+        weekE2Rates
 
 End Sub
 
@@ -262,7 +271,13 @@ End Function
 Private Sub AlignGroupedOccurrences(ByRef taskOccurrences() As TaskOccurrence, _
                                     ByRef groupedIndexes() As Long, _
                                     ByVal groupedCount As Long, _
-                                    ByVal toleranceDays As Long)
+                                    ByVal toleranceDays As Long, _
+                                    ByVal intervalType As String, _
+                                    ByVal displayWeeksShown As Long, _
+                                    ByRef weekStartDates() As Date, _
+                                    ByRef weekHHRates() As Double, _
+                                    ByRef weekE1Rates() As Double, _
+                                    ByRef weekE2Rates() As Double)
 
     Dim sourceIndex As Long
 
@@ -294,6 +309,16 @@ Private Sub AlignGroupedOccurrences(ByRef taskOccurrences() As TaskOccurrence, _
                 Else
                     .GroupedDirection = 1
                 End If
+
+                .groupedAlignmentAmount = CalculateGroupedAlignmentAmount( _
+                    .originalWeek, _
+                    earliestGroupedWeek, _
+                    intervalType, _
+                    displayWeeksShown, _
+                    weekStartDates, _
+                    weekHHRates, _
+                    weekE1Rates, _
+                    weekE2Rates)
 
             End With
 
@@ -337,6 +362,100 @@ Private Function FindEarliestWeekWithinTolerance(ByRef taskOccurrences() As Task
     Next compareIndex
 
     FindEarliestWeekWithinTolerance = earliestWeek
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Calculates grouped alignment amount in days or flying hours.
+'------------------------------------------------------------------------------
+Private Function CalculateGroupedAlignmentAmount(ByVal originalWeek As Date, _
+                                                 ByVal scheduledWeek As Date, _
+                                                 ByVal intervalType As String, _
+                                                 ByVal displayWeeksShown As Long, _
+                                                 ByRef weekStartDates() As Date, _
+                                                 ByRef weekHHRates() As Double, _
+                                                 ByRef weekE1Rates() As Double, _
+                                                 ByRef weekE2Rates() As Double) As Double
+
+    If intervalType = "DD" Then
+        CalculateGroupedAlignmentAmount = _
+            CDbl(Abs(CLng(originalWeek) - CLng(scheduledWeek)))
+        Exit Function
+    End If
+
+    Dim originalWeekIndex As Long
+    Dim scheduledWeekIndex As Long
+    Dim earlierWeekIndex As Long
+    Dim laterWeekIndex As Long
+
+    originalWeekIndex = FindDisplayWeekIndex(originalWeek, weekStartDates, displayWeeksShown)
+    scheduledWeekIndex = FindDisplayWeekIndex(scheduledWeek, weekStartDates, displayWeeksShown)
+
+    If originalWeekIndex = 0 Or scheduledWeekIndex = 0 Then
+        CalculateGroupedAlignmentAmount = 0
+        Exit Function
+    End If
+
+    If originalWeekIndex < scheduledWeekIndex Then
+        earlierWeekIndex = originalWeekIndex
+        laterWeekIndex = scheduledWeekIndex
+    Else
+        earlierWeekIndex = scheduledWeekIndex
+        laterWeekIndex = originalWeekIndex
+    End If
+
+    If laterWeekIndex <= earlierWeekIndex Then
+        CalculateGroupedAlignmentAmount = 0
+        Exit Function
+    End If
+
+    CalculateGroupedAlignmentAmount = SumFlyingRateBetweenWeekIndexes( _
+        earlierWeekIndex, _
+        laterWeekIndex - 1, _
+        intervalType, _
+        weekHHRates, _
+        weekE1Rates, _
+        weekE2Rates)
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Sums flying rate between two inclusive display week indexes.
+'------------------------------------------------------------------------------
+Private Function SumFlyingRateBetweenWeekIndexes(ByVal startWeekIndex As Long, _
+                                                 ByVal endWeekIndex As Long, _
+                                                 ByVal intervalType As String, _
+                                                 ByRef weekHHRates() As Double, _
+                                                 ByRef weekE1Rates() As Double, _
+                                                 ByRef weekE2Rates() As Double) As Double
+
+    If endWeekIndex < startWeekIndex Then Exit Function
+
+    Dim weekIndex As Long
+
+    For weekIndex = startWeekIndex To endWeekIndex
+
+        If weekIndex < LBound(weekHHRates) Or weekIndex > UBound(weekHHRates) Then Exit For
+
+        Select Case UCase$(Trim$(intervalType))
+
+            Case "HH"
+                SumFlyingRateBetweenWeekIndexes = _
+                    SumFlyingRateBetweenWeekIndexes + weekHHRates(weekIndex)
+
+            Case "E1"
+                SumFlyingRateBetweenWeekIndexes = _
+                    SumFlyingRateBetweenWeekIndexes + weekE1Rates(weekIndex)
+
+            Case "E2"
+                SumFlyingRateBetweenWeekIndexes = _
+                    SumFlyingRateBetweenWeekIndexes + weekE2Rates(weekIndex)
+
+        End Select
+
+    Next weekIndex
 
 End Function
 

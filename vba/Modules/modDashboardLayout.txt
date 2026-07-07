@@ -330,22 +330,7 @@ Private Sub WriteExtensionDashboardSummaryCell(ByVal targetCell As Range, _
     commentText = BuildExtensionDashboardCommentText(summaryDictionary, detailDictionary)
 
     If Len(commentText) > 0 Then
-        targetCell.AddComment CapCommentLength(commentText)
-
-        With targetCell.Comment
-            .Visible = False
-
-            With .Shape
-                .Width = 440
-                .Height = 280
-                .TextFrame.AutoSize = False
-
-                With .TextFrame.Characters.Font
-                    .Name = "Arial"
-                    .Size = 9
-                End With
-            End With
-        End With
+        SafeAddComment targetCell, commentText
     End If
 
 End Sub
@@ -484,22 +469,7 @@ Private Sub WriteDashboardSummaryCell(ByVal targetCell As Range, _
     commentText = BuildSummaryCommentText(summaryDictionary, detailDictionary)
 
     If Len(commentText) > 0 Then
-        targetCell.AddComment CapCommentLength(commentText)
-
-        With targetCell.Comment
-            .Visible = False
-
-            With .Shape
-                .Width = 440
-                .Height = 280
-                .TextFrame.AutoSize = False
-
-                With .TextFrame.Characters.Font
-                    .Name = "Arial"
-                    .Size = 9
-                End With
-            End With
-        End With
+        SafeAddComment targetCell, commentText
     End If
 
 End Sub
@@ -668,22 +638,7 @@ Private Sub WriteDashboardImportCell(ByVal targetCell As Range, _
                           "Re-import the current SITS export to update the planner."
         End If
 
-        targetCell.AddComment CapCommentLength(commentText)
-
-        With targetCell.Comment
-            .Visible = False
-
-            With .Shape
-                .Width = 320
-                .Height = 120
-                .TextFrame.AutoSize = False
-
-                With .TextFrame.Characters.Font
-                    .Name = "Arial"
-                    .Size = 9
-                End With
-            End With
-        End With
+        SafeAddComment targetCell, commentText
     End If
 
 End Sub

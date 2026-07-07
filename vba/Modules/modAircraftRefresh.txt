@@ -125,6 +125,7 @@ Public Sub RefreshOneAircraft(ByVal aircraftIndex As Long, _
         totalOccurrences, _
         settings.GroupingTolerancePercent, _
         settings, _
+        weekStartDates, _
         weekHHRates, _
         weekE1Rates, _
         weekE2Rates

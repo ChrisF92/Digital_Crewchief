@@ -69,6 +69,11 @@ End Function
 '------------------------------------------------------------------------------
 Public Sub SafeAddComment(targetCell As Range, commentText As String)
     Dim commentCell As Range
+    Dim commentShape As Shape
+    Dim longestLineLen As Long
+    Dim lineCount As Long
+    Dim commentWidth As Double
+    Dim commentHeight As Double
 
     If Len(Trim(commentText)) = 0 Then Exit Sub
 
@@ -86,15 +91,63 @@ Public Sub SafeAddComment(targetCell As Range, commentText As String)
 
     commentCell.AddComment commentText
 
-    If Not commentCell.Comment Is Nothing Then
-        commentCell.Comment.Shape.Width = 700
+    If commentCell.Comment Is Nothing Then Exit Sub
 
-        Dim lineCount As Long
-        lineCount = Len(commentText) - Len(Replace(commentText, Chr(10), "")) + 1
+    Set commentShape = commentCell.Comment.Shape
 
-        commentCell.Comment.Shape.Height = Application.Max(30, 16 * lineCount)
-    End If
+    longestLineLen = GetCommentLongestLineLength(commentText)
+    lineCount = GetCommentLineCount(commentText)
+
+    commentWidth = Application.Min(720, Application.Max(220, longestLineLen * 6.8 + 24))
+    commentHeight = Application.Max(36, 15 * lineCount + 18)
+
+    With commentShape
+        With .TextFrame
+            .AutoSize = False
+            .WordWrap = msoTrue
+
+            With .Characters.Font
+                .Name = "Arial"
+                .Size = 9
+            End With
+        End With
+
+        .Width = commentWidth
+        .Height = commentHeight
+    End With
 End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns the number of lines in a comment text block.
+'------------------------------------------------------------------------------
+Private Function GetCommentLineCount(ByVal commentText As String) As Long
+
+    GetCommentLineCount = Len(commentText) - Len(Replace(commentText, Chr(10), "")) + 1
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns the length of the longest line in a comment text block.
+'------------------------------------------------------------------------------
+Private Function GetCommentLongestLineLength(ByVal commentText As String) As Long
+
+    Dim lines() As String
+    Dim lineIndex As Long
+    Dim longestLen As Long
+
+    lines = Split(commentText, Chr(10))
+
+    For lineIndex = LBound(lines) To UBound(lines)
+        If Len(lines(lineIndex)) > longestLen Then
+            longestLen = Len(lines(lineIndex))
+        End If
+    Next lineIndex
+
+    GetCommentLongestLineLength = longestLen
+
+End Function
 
 '------------------------------------------------------------------------------
 ' Purpose : Parses a duration value into decimal hours.

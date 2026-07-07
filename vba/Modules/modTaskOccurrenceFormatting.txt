@@ -84,13 +84,26 @@ End Function
 '------------------------------------------------------------------------------
 Public Function FormatOccurrenceGroupedAlignmentAmount(ByRef occurrence As TaskOccurrence) As String
 
-    Dim alignmentDays As Long
-    alignmentDays = GetOccurrenceGroupedAlignmentDays(occurrence)
+    If occurrence.intervalType = "DD" Then
 
-    If alignmentDays = 1 Then
-        FormatOccurrenceGroupedAlignmentAmount = "1 day"
+        Dim alignmentDays As Long
+        alignmentDays = GetOccurrenceGroupedAlignmentDays(occurrence)
+
+        If alignmentDays = 1 Then
+            FormatOccurrenceGroupedAlignmentAmount = "1 day"
+        Else
+            FormatOccurrenceGroupedAlignmentAmount = CStr(alignmentDays) & " days"
+        End If
+
     Else
-        FormatOccurrenceGroupedAlignmentAmount = CStr(alignmentDays) & " days"
+
+        If occurrence.groupedAlignmentAmount > 0 Then
+            FormatOccurrenceGroupedAlignmentAmount = _
+                FormatHoursToHMM(occurrence.groupedAlignmentAmount) & " hrs"
+        Else
+            FormatOccurrenceGroupedAlignmentAmount = "0:00 hrs"
+        End If
+
     End If
 
 End Function
