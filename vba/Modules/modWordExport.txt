@@ -125,7 +125,7 @@ Public Sub GenerateWordWorkPack()
     totalTasks = 0
     extensionTasks = 0
 
-    For r = 5 To lastRow
+    For r = CHART_FIRST_TASK_ROW To lastRow
 
         Dim rowLabel As String
         rowLabel = Trim$(CStr(chartWs.Cells(r, 3).Value))
@@ -194,7 +194,7 @@ NextTaskCol:
     Dim extScanRow As Long
     Dim extScanCol As Long
 
-    For extScanRow = 5 To lastRow
+    For extScanRow = CHART_FIRST_TASK_ROW To lastRow
 
         Dim extRowLabel As String
         extRowLabel = Trim$(CStr(chartWs.Cells(extScanRow, 3).Value))

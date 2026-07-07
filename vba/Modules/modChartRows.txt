@@ -214,7 +214,7 @@ Public Function WriteChartTaskRows(ByVal chartWs As Worksheet, _
     For chartRowIndex = 1 To chartTaskRowCount
 
         Dim worksheetRow As Long
-        worksheetRow = 4 + chartRowIndex
+        worksheetRow = CHART_FIRST_TASK_ROW + chartRowIndex - 1
 
         rowMap.Add chartTaskRows(chartRowIndex).pairKey, worksheetRow
 

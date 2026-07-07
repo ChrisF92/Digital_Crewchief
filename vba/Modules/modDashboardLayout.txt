@@ -88,7 +88,7 @@ Public Sub WriteDashboardHeaders(ByVal dashboardWs As Worksheet)
         "Due This Cycle", _
         "Due Next Cycle", _
         "Due Next Maint Cycle", _
-        "Extensions Required", _
+        "Extensions by Week", _
         "Critical Tasks", _
         "Chart", _
         "Last Import", _
@@ -292,7 +292,7 @@ Public Sub WriteAircraftDashboardRow(ByVal dashboardWs As Worksheet, _
     WriteDashboardSummaryCell dashboardWs.Cells(dashboardRow, 4), dueBeforeSummary, dueBeforeDetails
     WriteDashboardSummaryCell dashboardWs.Cells(dashboardRow, 5), maintenanceSummary, maintenanceDetails
     WriteDashboardSummaryCell dashboardWs.Cells(dashboardRow, 6), nextMaintenanceSummary, nextMaintenanceDetails
-    WriteDashboardSummaryCell dashboardWs.Cells(dashboardRow, 7), extensionSummary, extensionDetails
+    WriteExtensionDashboardSummaryCell dashboardWs.Cells(dashboardRow, 7), extensionSummary, extensionDetails
     WriteDashboardSummaryCell dashboardWs.Cells(dashboardRow, 8), criticalSummary, criticalDetails
 
     AddDashboardSheetLink dashboardWs.Cells(dashboardRow, 9), chartWs, "Open Chart"
@@ -301,6 +301,158 @@ Public Sub WriteAircraftDashboardRow(ByVal dashboardWs As Worksheet, _
     FormatAircraftDashboardRow dashboardWs, dashboardRow
 
 End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Writes the extensions-by-week dashboard cell.
+'------------------------------------------------------------------------------
+Private Sub WriteExtensionDashboardSummaryCell(ByVal targetCell As Range, _
+                                               ByVal summaryDictionary As Object, _
+                                               ByVal detailDictionary As Object)
+
+    ClearCellComment targetCell
+
+    With targetCell
+        .Value = vbNullString
+        .WrapText = True
+        .VerticalAlignment = xlCenter
+        .HorizontalAlignment = xlLeft
+        .Interior.ColorIndex = xlNone
+    End With
+
+    If summaryDictionary Is Nothing Then Exit Sub
+    If summaryDictionary.Count = 0 Then Exit Sub
+
+    targetCell.Value = BuildExtensionDashboardDisplayText(summaryDictionary)
+    ApplyDashboardSummaryFill targetCell, summaryDictionary
+
+    Dim commentText As String
+    commentText = BuildExtensionDashboardCommentText(summaryDictionary, detailDictionary)
+
+    If Len(commentText) > 0 Then
+        targetCell.AddComment CapCommentLength(commentText)
+
+        With targetCell.Comment
+            .Visible = False
+
+            With .Shape
+                .Width = 440
+                .Height = 280
+                .TextFrame.AutoSize = False
+
+                With .TextFrame.Characters.Font
+                    .Name = "Arial"
+                    .Size = 9
+                End With
+            End With
+        End With
+    End If
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds compact visible text for extensions grouped by due week.
+'------------------------------------------------------------------------------
+Private Function BuildExtensionDashboardDisplayText(ByVal summaryDictionary As Object) As String
+
+    Const MAX_VISIBLE_LINES As Long = 3
+
+    Dim sortedKeys() As String
+    sortedKeys = SortExtensionWeekKeys(summaryDictionary)
+
+    Dim result As String
+    Dim lineIndex As Long
+    Dim hiddenLineCount As Long
+
+    hiddenLineCount = UBound(sortedKeys) - MAX_VISIBLE_LINES
+
+    For lineIndex = 1 To UBound(sortedKeys)
+
+        If lineIndex > MAX_VISIBLE_LINES Then
+            If hiddenLineCount > 0 Then
+                result = result & vbLf & "+ " & CStr(hiddenLineCount) & " more week(s)..."
+            End If
+            Exit For
+        End If
+
+        If Len(result) > 0 Then result = result & vbLf
+
+        result = result & sortedKeys(lineIndex) & ": " & _
+                 CStr(summaryDictionary(sortedKeys(lineIndex)))
+
+    Next lineIndex
+
+    BuildExtensionDashboardDisplayText = result
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds the hover comment for extensions grouped by due week.
+'------------------------------------------------------------------------------
+Private Function BuildExtensionDashboardCommentText(ByVal summaryDictionary As Object, _
+                                                    ByVal detailDictionary As Object) As String
+
+    Dim sortedKeys() As String
+    sortedKeys = SortExtensionWeekKeys(summaryDictionary)
+
+    Dim result As String
+    Dim lineIndex As Long
+
+    For lineIndex = 1 To UBound(sortedKeys)
+
+        If Len(result) > 0 Then result = result & vbLf & vbLf
+
+        result = result & "Raise by " & sortedKeys(lineIndex) & " - " & _
+                 CStr(summaryDictionary(sortedKeys(lineIndex))) & " extension(s):"
+
+        If Not detailDictionary Is Nothing Then
+            If detailDictionary.Exists(sortedKeys(lineIndex)) Then
+                result = result & vbLf & CStr(detailDictionary(sortedKeys(lineIndex)))
+            End If
+        End If
+
+    Next lineIndex
+
+    BuildExtensionDashboardCommentText = result
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns extension week summary keys sorted chronologically.
+'------------------------------------------------------------------------------
+Private Function SortExtensionWeekKeys(ByVal summaryDictionary As Object) As String()
+
+    Dim keyArray() As String
+    ReDim keyArray(1 To summaryDictionary.Count)
+
+    Dim key As Variant
+    Dim index As Long
+
+    For Each key In summaryDictionary.Keys
+        index = index + 1
+        keyArray(index) = CStr(key)
+    Next key
+
+    Dim outerIndex As Long
+    Dim innerIndex As Long
+
+    For outerIndex = 1 To UBound(keyArray) - 1
+        For innerIndex = outerIndex + 1 To UBound(keyArray)
+            If CDate(keyArray(innerIndex)) < CDate(keyArray(outerIndex)) Then
+                Dim tempKey As String
+                tempKey = keyArray(outerIndex)
+                keyArray(outerIndex) = keyArray(innerIndex)
+                keyArray(innerIndex) = tempKey
+            End If
+        Next innerIndex
+    Next outerIndex
+
+    SortExtensionWeekKeys = keyArray
+
+End Function
 
 
 '------------------------------------------------------------------------------

@@ -142,6 +142,85 @@ End Function
 
 
 '------------------------------------------------------------------------------
+' Purpose : Builds the extension-required tag shown in chart and dashboard comments.
+'------------------------------------------------------------------------------
+Public Function BuildChartExtensionTag(ByRef occurrence As TaskOccurrence) As String
+
+    If occurrence.existingExtensionPercent > 0 Then
+
+        If occurrence.intervalType = "HH" Or _
+           occurrence.intervalType = "E1" Or _
+           occurrence.intervalType = "E2" Then
+
+            BuildChartExtensionTag = _
+                "[EXT. REQ. FOR " & Format$(occurrence.originalWeek, "DD/MM/YYYY") & _
+                "; total " & _
+                Format$((occurrence.existingExtensionPercent + occurrence.extensionPercentUsed) * 100, "0") & _
+                "%; imported ext " & _
+                Format$(occurrence.existingExtensionAmount, "0.##") & _
+                " hrs; added " & _
+                Format$(occurrence.extensionPercentUsed * 100, "0") & _
+                "% to Maint]"
+
+        Else
+
+            BuildChartExtensionTag = _
+                "[EXT. REQ. FOR " & Format$(occurrence.originalWeek, "DD/MM/YYYY") & _
+                "; total " & _
+                Format$((occurrence.existingExtensionPercent + occurrence.extensionPercentUsed) * 100, "0") & _
+                "%; imported ext " & _
+                Format$(occurrence.existingExtensionAmount, "0.##") & _
+                " days; added " & _
+                Format$(occurrence.extensionPercentUsed * 100, "0") & _
+                "% to Maint]"
+
+        End If
+
+    Else
+
+        BuildChartExtensionTag = _
+            "[EXT. REQ. FOR " & Format$(occurrence.originalWeek, "DD/MM/YYYY") & _
+            "; " & Format$(occurrence.extensionPercentUsed * 100, "0") & _
+            "% to Maint]"
+
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns the dashboard/chart summary key for an extension due week.
+' Input : originalWeek - Monday start of the week by which the extension must be raised.
+' Output : UK date label used to group extension actions.
+'------------------------------------------------------------------------------
+Public Function BuildExtensionDueWeekKey(ByVal originalWeek As Date) As String
+
+    BuildExtensionDueWeekKey = Format$(originalWeek, "DD/MM/YYYY")
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds one extension-due detail line for chart and dashboard summaries.
+'------------------------------------------------------------------------------
+Public Function BuildExtensionDueDetailLine(ByRef occurrence As TaskOccurrence) As String
+
+    Dim detailText As String
+
+    detailText = occurrence.taskCode & " - " & _
+                 TruncateDesc(occurrence.taskDescription) & _
+                 RightAlignTag("[" & BuildOccurrenceDueText(occurrence) & "]")
+
+    If occurrence.wasAutoPushed Then
+        detailText = detailText & RightAlignTag(BuildChartExtensionTag(occurrence))
+    End If
+
+    BuildExtensionDueDetailLine = detailText
+
+End Function
+
+
+'------------------------------------------------------------------------------
 ' Purpose : Builds the pull-forward tag for a pulled task.
 ' Input : occurrence - task occurrence to format.
 ' Output : Pull tag, or blank if the occurrence was not pulled.
