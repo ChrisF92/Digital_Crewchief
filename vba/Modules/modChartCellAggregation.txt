@@ -129,15 +129,11 @@ Private Sub AddOccurrenceToChartAggregation(ByRef aggregation As ChartCellAggreg
                                             ByVal cellKey As String, _
                                             ByRef occurrence As TaskOccurrence)
 
-    Dim extensionBullets As String
     Dim scheduledBullets As String
-    Dim extensionCount As Long
     Dim scheduledCount As Long
 
     If aggregation.CellCounts.Exists(cellKey) Then
-        extensionCount = CLng(aggregation.CellExtensionCounts(cellKey))
         scheduledCount = CLng(aggregation.CellScheduledCounts(cellKey))
-        extensionBullets = CStr(aggregation.CellExtensionBullets(cellKey))
         scheduledBullets = CStr(aggregation.CellScheduledBullets(cellKey))
         aggregation.CellCounts(cellKey) = aggregation.CellCounts(cellKey) + 1
     Else
@@ -153,17 +149,13 @@ Private Sub AddOccurrenceToChartAggregation(ByRef aggregation As ChartCellAggreg
     End If
 
     If occurrence.wasAutoPushed Then
-        extensionCount = extensionCount + 1
-        AppendCommentBullet extensionBullets, BuildChartCellExtensionBullet(occurrence)
-        aggregation.CellExtensionCounts(cellKey) = extensionCount
-        aggregation.CellExtensionBullets(cellKey) = extensionBullets
         aggregation.CellPushed(cellKey) = True
-    Else
-        scheduledCount = scheduledCount + 1
-        AppendCommentBullet scheduledBullets, BuildOccurrenceScheduledBullet(occurrence)
-        aggregation.CellScheduledCounts(cellKey) = scheduledCount
-        aggregation.CellScheduledBullets(cellKey) = scheduledBullets
     End If
+
+    scheduledCount = scheduledCount + 1
+    AppendCommentBullet scheduledBullets, BuildChartCellScheduledBullet(occurrence)
+    aggregation.CellScheduledCounts(cellKey) = scheduledCount
+    aggregation.CellScheduledBullets(cellKey) = scheduledBullets
 
     If occurrence.GroupedDirection <> 0 Then
         aggregation.CellGrouped(cellKey) = occurrence.GroupedDirection
@@ -211,7 +203,7 @@ End Function
 Public Function BuildChartOccurrenceCommentLine(ByRef occurrence As TaskOccurrence) As String
 
     If occurrence.wasAutoPushed Then
-        BuildChartOccurrenceCommentLine = BuildChartCellExtensionBullet(occurrence)
+        BuildChartOccurrenceCommentLine = BuildChartCellScheduledBullet(occurrence)
     Else
         BuildChartOccurrenceCommentLine = BuildOccurrenceScheduledBullet(occurrence)
     End If
@@ -795,7 +787,7 @@ Public Sub WriteChartExtensionDueRow(ByVal chartWs As Worksheet, _
                     BuildExtensionDueWeekComment( _
                         CLng(weekCounts(weekKey)), _
                         weekKey, _
-                        CStr(weekDetails(weekKey)))
+                        weekDetails(weekKey))
             End If
 
         End If
@@ -826,16 +818,13 @@ Private Sub CollectExtensionDueByWeek(ByRef taskOccurrences() As TaskOccurrence,
         Dim weekKey As String
         weekKey = BuildExtensionDueWeekKey(occurrence.originalWeek)
 
-        Dim detailLine As String
-        detailLine = BuildExtensionRaiseBullet(occurrence)
-
         If weekCounts.Exists(weekKey) Then
             weekCounts(weekKey) = weekCounts(weekKey) + 1
-            weekDetails(weekKey) = weekDetails(weekKey) & vbLf & detailLine
         Else
             weekCounts.Add weekKey, 1
-            weekDetails.Add weekKey, detailLine
         End If
+
+        AddExtensionOccurrenceToWeekGroups weekDetails, occurrence
 
 NextOccurrence:
     Next occurrenceIndex

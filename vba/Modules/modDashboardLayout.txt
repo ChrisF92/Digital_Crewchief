@@ -392,7 +392,7 @@ Private Function BuildExtensionDashboardCommentText(ByVal summaryDictionary As O
         result = result & BuildDashboardExtensionWeekComment( _
             sortedKeys(lineIndex), _
             CLng(summaryDictionary(sortedKeys(lineIndex))), _
-            CStr(detailDictionary(sortedKeys(lineIndex))))
+            detailDictionary(sortedKeys(lineIndex)))
 
     Next lineIndex
 

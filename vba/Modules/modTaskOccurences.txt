@@ -33,6 +33,7 @@ Public Type TaskOccurrence
 
     GroupedDirection As Long
     groupedAlignmentAmount As Double
+    groupedWithTaskCode As String
 
     wasAutoPushed As Boolean
     extensionPercentUsed As Double
@@ -124,6 +125,7 @@ Public Function BuildTaskOccurrence(ByVal serialNumber As String, _
 
     occurrence.GroupedDirection = 0
     occurrence.groupedAlignmentAmount = 0
+    occurrence.groupedWithTaskCode = vbNullString
 
     occurrence.wasAutoPushed = wasAutoPushed
     occurrence.extensionPercentUsed = extensionPercentUsed

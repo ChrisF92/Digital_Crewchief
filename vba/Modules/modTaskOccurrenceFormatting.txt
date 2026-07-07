@@ -30,10 +30,57 @@ Public Function BuildOccurrenceDueText(ByRef occurrence As TaskOccurrence) As St
     If occurrence.intervalType = "DD" Then
         BuildOccurrenceDueText = "Due: " & Format$(occurrence.firstDueDate, "DD/MM/YYYY")
     Else
-        BuildOccurrenceDueText = "Due: " & _
-                                 FormatHoursToHMM(occurrence.lifeRemaining) & _
-                                 occurrence.intervalType
+        BuildOccurrenceDueText = "Due: 0:00 " & occurrence.intervalType
     End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Formats grouped alignment distance for pull-to-align comments.
+'------------------------------------------------------------------------------
+Public Function FormatGroupedAlignmentPullAmount(ByRef occurrence As TaskOccurrence) As String
+
+    If occurrence.intervalType = "DD" Then
+
+        Dim alignmentDays As Long
+        alignmentDays = GetOccurrenceGroupedAlignmentDays(occurrence)
+
+        If alignmentDays = 1 Then
+            FormatGroupedAlignmentPullAmount = "1 day"
+        Else
+            FormatGroupedAlignmentPullAmount = CStr(alignmentDays) & " days"
+        End If
+
+    Else
+        FormatGroupedAlignmentPullAmount = _
+            FormatHoursToHMM(occurrence.groupedAlignmentAmount) & " " & occurrence.intervalType
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds the grouped-alignment suffix for scheduled task comments.
+'------------------------------------------------------------------------------
+Public Function BuildGroupedAlignmentCommentText(ByRef occurrence As TaskOccurrence) As String
+
+    If occurrence.GroupedDirection = 0 Then
+        BuildGroupedAlignmentCommentText = vbNullString
+        Exit Function
+    End If
+
+    Dim directionText As String
+
+    If occurrence.GroupedDirection < 0 Then
+        directionText = "Pulled by "
+    Else
+        directionText = "Pushed by "
+    End If
+
+    BuildGroupedAlignmentCommentText = directionText & _
+                                       FormatGroupedAlignmentPullAmount(occurrence) & _
+                                       " to align with " & occurrence.groupedWithTaskCode
 
 End Function
 

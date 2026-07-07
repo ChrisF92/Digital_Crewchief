@@ -385,20 +385,26 @@ Private Sub AddMovementAndCriticalBuckets(ByRef dashboardBuckets As DashboardSum
 
     If occurrence.wasAutoPushed Then
 
+        If dashboardBuckets.ExtensionsRequired.TaskKeys.Exists(taskKey) Then GoTo SkipExtensionBucket
+
         Dim extensionWeekKey As String
-        Dim extensionDetailText As String
 
         extensionWeekKey = BuildExtensionDueWeekKey(occurrence.originalWeek)
-        extensionDetailText = BuildExtensionRaiseBullet(occurrence)
 
-        AddOccurrenceToDashboardBucket _
-            dashboardBuckets.ExtensionsRequired.Summary, _
+        If dashboardBuckets.ExtensionsRequired.Summary.Exists(extensionWeekKey) Then
+            dashboardBuckets.ExtensionsRequired.Summary(extensionWeekKey) = _
+                dashboardBuckets.ExtensionsRequired.Summary(extensionWeekKey) + 1
+        Else
+            dashboardBuckets.ExtensionsRequired.Summary.Add extensionWeekKey, 1
+        End If
+
+        AddExtensionOccurrenceToWeekGroups _
             dashboardBuckets.ExtensionsRequired.Details, _
-            dashboardBuckets.ExtensionsRequired.TaskKeys, _
-            taskKey, _
-            extensionWeekKey, _
-            extensionDetailText
+            occurrence
 
+        dashboardBuckets.ExtensionsRequired.TaskKeys.Add taskKey, True
+
+SkipExtensionBucket:
     End If
 
     If occurrence.wasAutoPulled Then

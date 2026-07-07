@@ -300,6 +300,13 @@ Private Sub AlignGroupedOccurrences(ByRef taskOccurrences() As TaskOccurrence, _
 
         If earliestGroupedWeek <> baseWeek Then
 
+            Dim anchorTaskCode As String
+            anchorTaskCode = FindGroupedAnchorTaskCode( _
+                taskOccurrences, _
+                groupedIndexes, _
+                groupedCount, _
+                earliestGroupedWeek)
+
             With taskOccurrences(occurrenceIndex)
 
                 .scheduledWeek = earliestGroupedWeek
@@ -309,6 +316,8 @@ Private Sub AlignGroupedOccurrences(ByRef taskOccurrences() As TaskOccurrence, _
                 Else
                     .GroupedDirection = 1
                 End If
+
+                .groupedWithTaskCode = anchorTaskCode
 
                 .groupedAlignmentAmount = CalculateGroupedAlignmentAmount( _
                     .originalWeek, _
@@ -362,6 +371,46 @@ Private Function FindEarliestWeekWithinTolerance(ByRef taskOccurrences() As Task
     Next compareIndex
 
     FindEarliestWeekWithinTolerance = earliestWeek
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns the task code that anchored a grouped alignment move.
+'------------------------------------------------------------------------------
+Private Function FindGroupedAnchorTaskCode(ByRef taskOccurrences() As TaskOccurrence, _
+                                           ByRef groupedIndexes() As Long, _
+                                           ByVal groupedCount As Long, _
+                                           ByVal targetWeek As Date) As String
+
+    Dim compareIndex As Long
+    Dim anchorIndex As Long
+    Dim earliestOriginalWeek As Date
+
+    earliestOriginalWeek = #12/31/9999#
+
+    For compareIndex = 1 To groupedCount
+
+        Dim occurrenceIndex As Long
+        occurrenceIndex = groupedIndexes(compareIndex)
+
+        If taskOccurrences(occurrenceIndex).scheduledWeek = targetWeek Then
+            FindGroupedAnchorTaskCode = taskOccurrences(occurrenceIndex).taskCode
+            Exit Function
+        End If
+
+        If taskOccurrences(occurrenceIndex).originalWeek < earliestOriginalWeek Then
+            earliestOriginalWeek = taskOccurrences(occurrenceIndex).originalWeek
+            anchorIndex = occurrenceIndex
+        End If
+
+    Next compareIndex
+
+    If anchorIndex > 0 Then
+        FindGroupedAnchorTaskCode = taskOccurrences(anchorIndex).taskCode
+    Else
+        FindGroupedAnchorTaskCode = vbNullString
+    End If
 
 End Function
 
