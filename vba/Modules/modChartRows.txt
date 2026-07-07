@@ -42,6 +42,7 @@ Public Function BuildChartTaskRows(ByRef taskOccurrences() As TaskOccurrence, _
                 taskOccurrences(occurrenceIndex).intervalValue)
         End If
 
+NextOccurrence:
     Next occurrenceIndex
 
     BuildChartTaskRows = SortChartTaskRows(pairDictionary)
