@@ -28,7 +28,7 @@ End Function
 '------------------------------------------------------------------------------
 Public Function GetEffectiveExistingExtensionPercent(ByRef occurrence As TaskOccurrence) As Double
 
-    If occurrence.wasAutoPushed Or occurrence.wasAutoPulled Then
+    If occurrence.wasAutoPushed Or occurrence.wasAutoPulled Or occurrence.GroupedDirection <> 0 Then
         GetEffectiveExistingExtensionPercent = 0
     Else
         GetEffectiveExistingExtensionPercent = occurrence.existingExtensionPercent
@@ -42,7 +42,7 @@ End Function
 '------------------------------------------------------------------------------
 Public Function GetEffectiveExistingExtensionAmount(ByRef occurrence As TaskOccurrence) As Double
 
-    If occurrence.wasAutoPushed Or occurrence.wasAutoPulled Then
+    If occurrence.wasAutoPushed Or occurrence.wasAutoPulled Or occurrence.GroupedDirection <> 0 Then
         GetEffectiveExistingExtensionAmount = 0
     Else
         GetEffectiveExistingExtensionAmount = occurrence.existingExtensionAmount
