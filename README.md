@@ -10,9 +10,9 @@ Excel-based maintenance forecasting and crew planning tool for Apache aircraft. 
 Digital_Crewchief/
 ├── 20260603-Digital Crewchief_BETA_MASTER.xlsm   # Main workbook (binary)
 ├── vba/
-│   ├── Modules/          # Standard modules (.bas)
-│   ├── ExcelObjects/     # ThisWorkbook and worksheet code (.cls)
-│   └── Forms/            # UserForm code (.frm)
+│   ├── Modules/          # Standard modules (.txt)
+│   ├── ExcelObjects/     # ThisWorkbook and worksheet code (.txt)
+│   └── Forms/            # UserForm code (.txt)
 └── tools/
     └── export_vba.py     # Re-export VBA source from the workbook
 ```

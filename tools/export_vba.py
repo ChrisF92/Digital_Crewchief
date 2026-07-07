@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export VBA source from the Digital Crewchief workbook into vba/."""
+"""Export VBA source from the Digital Crewchief workbook into vba/ as .txt files."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ VBA_ROOT = REPO_ROOT / "vba"
 MODULES_DIR = VBA_ROOT / "Modules"
 EXCEL_OBJECTS_DIR = VBA_ROOT / "ExcelObjects"
 FORMS_DIR = VBA_ROOT / "Forms"
+TEXT_EXTENSION = ".txt"
 
 FORM_NAMES = frozenset(
     {
@@ -29,10 +30,10 @@ FORM_NAMES = frozenset(
 
 def module_destination(module_name: str, kind: VBAModuleKind) -> Path:
     if module_name in FORM_NAMES:
-        return FORMS_DIR / f"{module_name}.frm"
+        return FORMS_DIR / f"{module_name}{TEXT_EXTENSION}"
     if kind == VBAModuleKind.standard:
-        return MODULES_DIR / f"{module_name}.bas"
-    return EXCEL_OBJECTS_DIR / f"{module_name}.cls"
+        return MODULES_DIR / f"{module_name}{TEXT_EXTENSION}"
+    return EXCEL_OBJECTS_DIR / f"{module_name}{TEXT_EXTENSION}"
 
 
 def export_workbook(workbook_path: Path, *, clean: bool = True) -> list[Path]:
@@ -81,14 +82,6 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Exported {len(written)} VBA components to {VBA_ROOT}")
     for path in sorted(written):
         print(f"  {path.relative_to(REPO_ROOT)}")
-    print(
-        "\nNote: UserForm layout binaries (.frx) are not embedded in exported .frm files.",
-        file=sys.stderr,
-    )
-    print(
-        "Run tools/ExportAllComponents.bas in Excel to export full .frm/.frx pairs.",
-        file=sys.stderr,
-    )
     return 0
 
 
