@@ -12,10 +12,9 @@ Digital_Crewchief/
 ├── vba/
 │   ├── Modules/          # Standard modules (.bas)
 │   ├── ExcelObjects/     # ThisWorkbook and worksheet code (.cls)
-│   └── Forms/            # UserForm code (.frm) and layout (.frx)
+│   └── Forms/            # UserForm code (.frm)
 └── tools/
-    ├── export_vba.py           # Export VBA source from the workbook (Linux/macOS/Windows)
-    └── ExportAllComponents.bas # Export full UserForms from Excel (Windows)
+    └── export_vba.py     # Re-export VBA source from the workbook
 ```
 
 ## Workbook sheets
@@ -47,33 +46,14 @@ Digital_Crewchief/
 
 ## Working with VBA in this repo
 
-### Export VBA from the workbook (automated)
-
-Requires Python 3 and [pyopenvba](https://pypi.org/project/pyopenvba/):
+Edit files under `vba/`, then import changed modules into the workbook via the VBA editor (Alt+F11 → File → Import File). Re-export after workbook changes:
 
 ```bash
 pip install pyopenvba
 python tools/export_vba.py
 ```
 
-This exports all 47 VBA components (modules, worksheet code, and UserForm **code**) into `vba/`.
-
-### Export UserForm layouts (one-time, from Excel)
-
-UserForm **control layouts** are stored as binary `.frx` files alongside each `.frm`. These cannot be reconstructed outside Excel, so after changing a form's design you must re-export from Excel:
-
-1. Enable **Trust access to the VBA project object model** (File → Options → Trust Center → Macro Settings).
-2. Open the workbook and press **Alt+F11**.
-3. File → Import File → `tools/ExportAllComponents.bas`
-4. Press **Alt+F8** → run **ExportAllComponentsToRepo**
-
-This writes complete `.frm` and `.frx` pairs into `vba/Forms/`. Commit both files for each form.
-
-### Edit and test
-
-1. Edit `.bas` / `.cls` / `.frm` files in `vba/` as needed.
-2. In Excel, import changed files via the VBA editor (File → Import File), or use the export macro in reverse after manual edits in the IDE.
-3. Run **RefreshAll** (or reopen the workbook) to rebuild charts and the dashboard.
+Run **RefreshAll** (or reopen the workbook) to rebuild charts and the dashboard after logic changes.
 
 ## UserForms
 

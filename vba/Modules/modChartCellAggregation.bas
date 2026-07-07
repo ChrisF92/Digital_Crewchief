@@ -175,12 +175,18 @@ Public Function BuildChartOccurrenceCommentLine(ByRef occurrence As TaskOccurren
     taskLine = taskLine & RightAlignTag("[" & BuildChartDueTimeText(occurrence) & "]")
 
     If occurrence.GroupedDirection = -1 Then
-        taskLine = taskLine & RightAlignTag("[PULLED TO ALIGN]")
+        taskLine = taskLine & RightAlignTag( _
+            "[PULLED TO ALIGN by " & FormatOccurrenceGroupedAlignmentAmount(occurrence) & "]")
+    ElseIf occurrence.GroupedDirection = 1 Then
+        taskLine = taskLine & RightAlignTag( _
+            "[PUSHED TO ALIGN by " & FormatOccurrenceGroupedAlignmentAmount(occurrence) & "]")
     End If
 
     If occurrence.wasAutoPulled Then
         taskLine = taskLine & RightAlignTag( _
-            "[PULLED " & Format$(occurrence.pullPercentUsed * 100, "0") & "% to Maint]")
+            "[PULLED " & FormatOccurrencePullAmount(occurrence) & _
+            " (" & Format$(occurrence.pullPercentUsed * 100, "0") & _
+            "%) to Maint]")
     End If
 
     If occurrence.wasAutoPushed Then
@@ -222,7 +228,7 @@ End Function
 '------------------------------------------------------------------------------
 ' Purpose : Builds the extension-required tag shown in chart comments.
 '------------------------------------------------------------------------------
-Private Function BuildChartExtensionTag(ByRef occurrence As TaskOccurrence) As String
+Public Function BuildChartExtensionTag(ByRef occurrence As TaskOccurrence) As String
 
     If occurrence.existingExtensionPercent > 0 Then
 
@@ -782,5 +788,89 @@ Private Function RemoveChartCommentHeader(ByVal commentText As String, _
     RemoveChartCommentHeader = Replace(commentText, headerText, vbNullString)
 
 End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Marks original due-week cells where an extension must be raised.
+' Input : chartWs - aircraft chart worksheet.
+' taskOccurrences - populated task occurrence records.
+' totalOccurrences - number of populated occurrences.
+' rowLookup - chart row lookup by interval pair key.
+' columnLookup - chart column lookup by week start date.
+' Notes : Called before maintenance-cell merging so flying-week cells remain separate.
+'------------------------------------------------------------------------------
+Public Sub WriteExtensionDueIndicators(ByVal chartWs As Worksheet, _
+                                       ByRef taskOccurrences() As TaskOccurrence, _
+                                       ByVal totalOccurrences As Long, _
+                                       ByVal rowLookup As Object, _
+                                       ByVal columnLookup As Object)
+
+    Dim occurrenceIndex As Long
+
+    For occurrenceIndex = 1 To totalOccurrences
+
+        Dim occurrence As TaskOccurrence
+        occurrence = taskOccurrences(occurrenceIndex)
+
+        If Not occurrence.wasAutoPushed Then GoTo NextOccurrence
+        If CLng(occurrence.originalWeek) = CLng(occurrence.scheduledWeek) Then GoTo NextOccurrence
+
+        Dim pairKey As String
+        pairKey = BuildChartPairKey(occurrence.intervalType, occurrence.intervalValue)
+
+        If Not rowLookup.Exists(pairKey) Then GoTo NextOccurrence
+
+        Dim chartRow As Long
+        chartRow = CLng(rowLookup(pairKey))
+
+        Dim originalWeekKey As Long
+        originalWeekKey = CLng(occurrence.originalWeek)
+
+        If Not columnLookup.Exists(originalWeekKey) Then GoTo NextOccurrence
+
+        Dim chartColumn As Long
+        chartColumn = CLng(columnLookup(originalWeekKey))
+
+        MarkExtensionDueChartCell chartWs, chartRow, chartColumn, occurrence
+
+NextOccurrence:
+    Next occurrenceIndex
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Writes or appends an extension-due indicator to one chart cell.
+'------------------------------------------------------------------------------
+Private Sub MarkExtensionDueChartCell(ByVal chartWs As Worksheet, _
+                                      ByVal chartRow As Long, _
+                                      ByVal chartColumn As Long, _
+                                      ByRef occurrence As TaskOccurrence)
+
+    Dim targetCell As Range
+    Set targetCell = chartWs.Cells(chartRow, chartColumn)
+
+    If Len(Trim$(CStr(targetCell.Value))) > 0 Then Exit Sub
+
+    With targetCell
+        .Value = "EXT"
+        .Font.Name = "Arial"
+        .Font.Size = 8
+        .Font.Bold = True
+        .Font.Color = RGB(192, 64, 0)
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlCenter
+        .Interior.Color = CLR_EXT_DUE
+    End With
+
+    Dim indicatorText As String
+    indicatorText = "Extension must be raised for original due week " & _
+                    Format$(occurrence.originalWeek, "DD/MM/YYYY") & vbLf & _
+                    occurrence.taskCode & " - " & TruncateDesc(occurrence.taskDescription) & _
+                    RightAlignTag(BuildChartExtensionTag(occurrence))
+
+    SafeAddComment targetCell, CapCommentLength(indicatorText)
+
+End Sub
 
 

@@ -23,6 +23,8 @@ Public Const CLR_FLY1 As Long = 14348800
 Public Const CLR_FLY2 As Long = 13762521
 Public Const CLR_FLY3 As Long = 14024663
 Public Const CLR_DOWN As Long = 13816530
+Public Const CLR_CURRENT_WEEK As Long = 13434879   ' RGB(255, 242, 204)
+Public Const CLR_EXT_DUE As Long = 10079487          ' RGB(255, 204, 153)
 
 ' --- Comment formatting constants ---
 Public Const MAX_DESC_LEN As Long = 50

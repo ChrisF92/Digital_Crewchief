@@ -76,6 +76,72 @@ End Function
 
 
 '------------------------------------------------------------------------------
+' Purpose : Returns the absolute amount pulled forward for a maintenance pull.
+' Input : occurrence - task occurrence with pullPercentUsed populated.
+' Output : Hours for HH/E1/E2 tasks, days for DD tasks.
+'------------------------------------------------------------------------------
+Public Function GetOccurrencePullAmount(ByRef occurrence As TaskOccurrence) As Double
+
+    GetOccurrencePullAmount = occurrence.pullPercentUsed * occurrence.intervalValue
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Formats a maintenance pull amount for display in comments.
+' Input : occurrence - pulled task occurrence.
+' Output : Text such as "12.5 hrs" or "14 days".
+'------------------------------------------------------------------------------
+Public Function FormatOccurrencePullAmount(ByRef occurrence As TaskOccurrence) As String
+
+    Dim pullAmount As Double
+    pullAmount = GetOccurrencePullAmount(occurrence)
+
+    If occurrence.intervalType = "DD" Then
+        If pullAmount = Int(pullAmount) Then
+            FormatOccurrencePullAmount = CStr(CLng(pullAmount)) & " days"
+        Else
+            FormatOccurrencePullAmount = Format$(pullAmount, "0.##") & " days"
+        End If
+    Else
+        FormatOccurrencePullAmount = FormatHoursToHMM(pullAmount) & " hrs"
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns the alignment distance between grouped original and scheduled weeks.
+' Input : occurrence - grouped task occurrence.
+' Output : Positive day count between original and scheduled week starts.
+'------------------------------------------------------------------------------
+Public Function GetOccurrenceGroupedAlignmentDays(ByRef occurrence As TaskOccurrence) As Long
+
+    GetOccurrenceGroupedAlignmentDays = Abs(CLng(occurrence.originalWeek) - CLng(occurrence.scheduledWeek))
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Formats grouped alignment movement for chart comments.
+' Input : occurrence - grouped task occurrence.
+' Output : Text such as "14 days" or "0 days".
+'------------------------------------------------------------------------------
+Public Function FormatOccurrenceGroupedAlignmentAmount(ByRef occurrence As TaskOccurrence) As String
+
+    Dim alignmentDays As Long
+    alignmentDays = GetOccurrenceGroupedAlignmentDays(occurrence)
+
+    If alignmentDays = 1 Then
+        FormatOccurrenceGroupedAlignmentAmount = "1 day"
+    Else
+        FormatOccurrenceGroupedAlignmentAmount = CStr(alignmentDays) & " days"
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
 ' Purpose : Builds the pull-forward tag for a pulled task.
 ' Input : occurrence - task occurrence to format.
 ' Output : Pull tag, or blank if the occurrence was not pulled.
@@ -84,8 +150,9 @@ Public Function BuildOccurrencePullTag(ByRef occurrence As TaskOccurrence) As St
 
     If occurrence.wasAutoPulled Then
         BuildOccurrencePullTag = "[PULLED " & _
-                                 Format$(occurrence.pullPercentUsed * 100, "0") & _
-                                 "%]"
+                                 FormatOccurrencePullAmount(occurrence) & _
+                                 " (" & Format$(occurrence.pullPercentUsed * 100, "0") & _
+                                 "%)]"
     Else
         BuildOccurrencePullTag = vbNullString
     End If

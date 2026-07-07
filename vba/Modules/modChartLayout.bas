@@ -312,3 +312,53 @@ Private Sub ClearCommentsInRange(ByVal targetRange As Range)
 End Sub
 
 
+'------------------------------------------------------------------------------
+' Purpose : Highlights the current calendar week column on an aircraft chart.
+' Input : chartWs - aircraft chart worksheet.
+' settings - validated planner settings.
+' weekStartDates - visible planner week start dates.
+' lastTaskRow - last populated task row on the chart.
+'------------------------------------------------------------------------------
+Public Sub HighlightCurrentWeekOnChart(ByVal chartWs As Worksheet, _
+                                       ByRef settings As PlannerSettings, _
+                                       ByRef weekStartDates() As Date, _
+                                       ByVal lastTaskRow As Long)
+
+    Dim currentWeekIndex As Long
+    currentWeekIndex = FindDisplayWeekIndex( _
+        GetCurrentWeekMonday(), _
+        weekStartDates, _
+        settings.displayWeeksShown)
+
+    If currentWeekIndex = 0 Then Exit Sub
+
+    Dim targetColumn As Long
+    targetColumn = CHART_FIRST_WEEK_COL + currentWeekIndex - 1
+
+    Dim bottomRow As Long
+    bottomRow = Application.Max(CHART_DATE_ROW, lastTaskRow)
+
+    Dim targetRange As Range
+    Set targetRange = chartWs.Range( _
+        chartWs.Cells(CHART_HEADER_ROW, targetColumn), _
+        chartWs.Cells(bottomRow, targetColumn))
+
+    With targetRange
+        .Interior.Color = CLR_CURRENT_WEEK
+
+        With .Borders(xlEdgeLeft)
+            .LineStyle = xlContinuous
+            .Color = RGB(255, 153, 0)
+            .Weight = xlMedium
+        End With
+
+        With .Borders(xlEdgeRight)
+            .LineStyle = xlContinuous
+            .Color = RGB(255, 153, 0)
+            .Weight = xlMedium
+        End With
+    End With
+
+End Sub
+
+

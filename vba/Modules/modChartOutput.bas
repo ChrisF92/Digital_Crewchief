@@ -81,12 +81,25 @@ Public Sub PopulateAircraftChart(ByVal chartWs As Worksheet, _
         chartWs, _
         chartAggregation
 
+    WriteExtensionDueIndicators _
+        chartWs, _
+        taskOccurrences, _
+        totalOccurrences, _
+        rowLookup, _
+        columnLookup
+
     MergeChartMaintenanceCells _
         chartWs, _
         chartTaskRowCount, _
         settings, _
         weekCyclePositions, _
         chartAggregation
+
+    HighlightCurrentWeekOnChart _
+        chartWs, _
+        settings, _
+        weekStartDates, _
+        chartTaskRowCount + CHART_FIRST_TASK_ROW - 1
 
 End Sub
 
