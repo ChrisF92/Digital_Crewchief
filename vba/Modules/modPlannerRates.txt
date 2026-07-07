@@ -5,36 +5,19 @@ Option Explicit
 ' Module : modPlannerRates
 ' Purpose : Loads and stores planned weekly flying rates.
 '
-' Current planner version:
-' Supports a fixed 3 flying week / 2 maintenance week cycle.
-'
 ' Rate storage:
 ' Rates are read from workbook-level named ranges, not fixed Settings cells.
 ' This allows the Settings sheet layout to change without breaking refresh.
 '
-' Required named ranges:
-' FlyingWeek1HHRate
-' FlyingWeek1E1Rate
-' FlyingWeek1E2Rate
-'
-' FlyingWeek2HHRate
-' FlyingWeek2E1Rate
-' FlyingWeek2E2Rate
-'
-' FlyingWeek3HHRate
-' FlyingWeek3E1Rate
-' FlyingWeek3E2Rate
+' Required named ranges (one set per configured flying week, up to 5):
+' FlyingWeek1HHRate, FlyingWeek1E1Rate, FlyingWeek1E2Rate
+' FlyingWeek2HHRate, FlyingWeek2E1Rate, FlyingWeek2E2Rate
+' ... through FlyingWeek5HHRate, FlyingWeek5E1Rate, FlyingWeek5E2Rate
 '
 ' Notes:
 ' Settings cells store rates as Excel durations formatted [h]:mm.
 ' VBA calculations use decimal hours, so values are multiplied by 24.
-'
-' Future improvement:
-' When variable flying weeks are supported, replace FIXED_FLYING_WEEKS
-' and fixed-size arrays with dynamic arrays sized from PlannerSettings.
 '------------------------------------------------------------------------------
-
-Private Const FIXED_FLYING_WEEKS As Long = 3
 
 Private Const RATE_TYPE_HH As String = "HH"
 Private Const RATE_TYPE_E1 As String = "E1"
@@ -46,32 +29,35 @@ Private Const ERR_BASE_PLANNER_RATES As Long = vbObjectError + 2200
 '------------------------------------------------------------------------------
 ' Type : PlannerRates
 ' Purpose : Stores flying-rate assumptions for each flying week in the cycle.
-'
-' Current limitation:
-' Fixed to 3 flying weeks.
 '------------------------------------------------------------------------------
 Public Type plannerRates
-    HHRates(1 To FIXED_FLYING_WEEKS) As Double
-    E1Rates(1 To FIXED_FLYING_WEEKS) As Double
-    E2Rates(1 To FIXED_FLYING_WEEKS) As Double
+    HHRates(1 To MAX_FLYING_WEEKS) As Double
+    E1Rates(1 To MAX_FLYING_WEEKS) As Double
+    E2Rates(1 To MAX_FLYING_WEEKS) As Double
+    flyingWeekCount As Long
 End Type
 
 
 '------------------------------------------------------------------------------
 ' Purpose : Loads planned flying rates from named ranges.
+' Input : flyingWeekCount - number of flying weeks in the current cycle.
 ' Output : PlannerRates value containing HH, E1, and E2 rates.
 ' Raises : Error if any required rate named range is missing or invalid.
 '------------------------------------------------------------------------------
-Public Function LoadPlannerRates() As plannerRates
+Public Function LoadPlannerRates(ByVal flyingWeekCount As Long) As plannerRates
 
     Dim rates As plannerRates
     Dim flyingWeek As Long
 
-    For flyingWeek = 1 To FIXED_FLYING_WEEKS
+    ValidateFlyingWeekCount flyingWeekCount
 
-        rates.HHRates(flyingWeek) = GetRateValueByName(flyingWeek, RATE_TYPE_HH)
-        rates.E1Rates(flyingWeek) = GetRateValueByName(flyingWeek, RATE_TYPE_E1)
-        rates.E2Rates(flyingWeek) = GetRateValueByName(flyingWeek, RATE_TYPE_E2)
+    rates.flyingWeekCount = flyingWeekCount
+
+    For flyingWeek = 1 To flyingWeekCount
+
+        rates.HHRates(flyingWeek) = GetRateValueByName(flyingWeek, RATE_TYPE_HH, flyingWeekCount)
+        rates.E1Rates(flyingWeek) = GetRateValueByName(flyingWeek, RATE_TYPE_E1, flyingWeekCount)
+        rates.E2Rates(flyingWeek) = GetRateValueByName(flyingWeek, RATE_TYPE_E2, flyingWeekCount)
 
     Next flyingWeek
 
@@ -82,15 +68,17 @@ End Function
 
 '------------------------------------------------------------------------------
 ' Purpose : Returns the decimal-hour rate for one flying week and counter type.
-' Input : flyingWeek - flying week number, currently 1 to 3.
+' Input : flyingWeek - flying week number within the configured cycle.
 ' rateType - HH, E1, or E2.
+' flyingWeekCount - configured number of flying weeks in the cycle.
 ' Output : Decimal hours for calculation use.
 '------------------------------------------------------------------------------
 Private Function GetRateValueByName(ByVal flyingWeek As Long, _
-                                    ByVal rateType As String) As Double
+                                    ByVal rateType As String, _
+                                    ByVal flyingWeekCount As Long) As Double
 
     Dim rangeName As String
-    rangeName = BuildRateRangeName(flyingWeek, rateType)
+    rangeName = BuildRateRangeName(flyingWeek, rateType, flyingWeekCount)
 
     Dim displayName As String
     displayName = "Flying Week " & flyingWeek & " " & rateType
@@ -105,9 +93,10 @@ End Function
 ' Example : FlyingWeek2E2Rate
 '------------------------------------------------------------------------------
 Private Function BuildRateRangeName(ByVal flyingWeek As Long, _
-                                    ByVal rateType As String) As String
+                                    ByVal rateType As String, _
+                                    ByVal flyingWeekCount As Long) As String
 
-    ValidateFlyingWeekNumber flyingWeek
+    ValidateFlyingWeekNumber flyingWeek, flyingWeekCount
     ValidateRateType rateType
 
     BuildRateRangeName = "FlyingWeek" & CStr(flyingWeek) & rateType & "Rate"
@@ -181,15 +170,30 @@ End Function
 
 
 '------------------------------------------------------------------------------
-' Purpose : Validates the currently supported flying week number.
+' Purpose : Validates the configured flying week count.
 '------------------------------------------------------------------------------
-Private Sub ValidateFlyingWeekNumber(ByVal flyingWeek As Long)
+Private Sub ValidateFlyingWeekCount(ByVal flyingWeekCount As Long)
 
-    If flyingWeek < 1 Or flyingWeek > FIXED_FLYING_WEEKS Then
+    If flyingWeekCount < MIN_FLYING_WEEKS Or flyingWeekCount > MAX_FLYING_WEEKS Then
         Err.Raise ERR_BASE_PLANNER_RATES + 5, _
+                  "ValidateFlyingWeekCount", _
+                  "Flying week count must be between " & MIN_FLYING_WEEKS & " and " & MAX_FLYING_WEEKS & "."
+    End If
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Validates a flying week number against the configured cycle.
+'------------------------------------------------------------------------------
+Private Sub ValidateFlyingWeekNumber(ByVal flyingWeek As Long, _
+                                     ByVal flyingWeekCount As Long)
+
+    If flyingWeek < 1 Or flyingWeek > flyingWeekCount Then
+        Err.Raise ERR_BASE_PLANNER_RATES + 6, _
                   "ValidateFlyingWeekNumber", _
-                  "Flying week " & flyingWeek & " is outside the supported range." & vbCrLf & _
-                  "Current planner version supports flying weeks 1 to " & FIXED_FLYING_WEEKS & "."
+                  "Flying week " & flyingWeek & " is outside the configured range." & vbCrLf & _
+                  "Current cycle supports flying weeks 1 to " & flyingWeekCount & "."
     End If
 
 End Sub
@@ -206,7 +210,7 @@ Private Sub ValidateRateType(ByVal rateType As String)
             ' Valid.
 
         Case Else
-            Err.Raise ERR_BASE_PLANNER_RATES + 6, _
+            Err.Raise ERR_BASE_PLANNER_RATES + 7, _
                       "ValidateRateType", _
                       "Unsupported rate type: " & rateType
 

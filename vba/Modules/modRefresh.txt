@@ -23,7 +23,7 @@ Public Sub RefreshAll()
     settings = LoadPlannerSettings()
         
     Dim rates As plannerRates
-    rates = LoadPlannerRates()
+    rates = LoadPlannerRates(settings.flyingWeeks)
 
     Dim aircraftRoster As aircraftRoster
     aircraftRoster = LoadAircraftRoster(settings)

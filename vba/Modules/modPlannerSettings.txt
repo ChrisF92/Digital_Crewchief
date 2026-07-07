@@ -97,16 +97,16 @@ Private Sub ValidatePlannerSettings(ByRef settings As PlannerSettings)
                   "MaxAircraftSlots must be greater than zero."
     End If
 
-    If settings.flyingWeeks < 0 Then
+    If settings.flyingWeeks < MIN_FLYING_WEEKS Or settings.flyingWeeks > MAX_FLYING_WEEKS Then
         Err.Raise ERR_BASE_PLANNER_SETTINGS + 3, _
                   "ValidatePlannerSettings", _
-                  "FlyingWeeks cannot be negative."
+                  "FlyingWeeks must be between " & MIN_FLYING_WEEKS & " and " & MAX_FLYING_WEEKS & "."
     End If
 
-    If settings.MaintenanceWeeks < 0 Then
+    If settings.MaintenanceWeeks < MIN_MAINTENANCE_WEEKS Or settings.MaintenanceWeeks > MAX_MAINTENANCE_WEEKS Then
         Err.Raise ERR_BASE_PLANNER_SETTINGS + 4, _
                   "ValidatePlannerSettings", _
-                  "MaintenanceWeeks cannot be negative."
+                  "MaintenanceWeeks must be between " & MIN_MAINTENANCE_WEEKS & " and " & MAX_MAINTENANCE_WEEKS & "."
     End If
 
     If settings.cycleLength <= 0 Then

@@ -297,7 +297,7 @@ Private Sub ApplyChartRotationHeaderFill(ByVal targetCell As Range, _
                 targetCell.Interior.Color = CLR_FLY3
 
             Case Else
-                targetCell.Interior.Color = CLR_FLY1
+                targetCell.Interior.Color = CLR_FLY3
 
         End Select
 

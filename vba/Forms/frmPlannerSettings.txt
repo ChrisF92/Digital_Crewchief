@@ -134,27 +134,29 @@ Private Sub LoadSettingsIntoForm()
 
     cmbDashboardSortOrder.Value = LoadDashboardSortOrderFormValue()
 
-    ' Fixed cycle structure
-    txtCycleLength.Value = CStr(GetNamedRangeValue("CycleLength"))
+    ' Cycle structure
     txtFlyingWeeks.Value = CStr(GetNamedRangeValue("FlyingWeeks"))
     txtMaintenanceWeeks.Value = CStr(GetNamedRangeValue("MaintenanceWeeks"))
+    UpdateCycleLengthFromForm
 
-    txtCycleLength.Locked = True
-    txtFlyingWeeks.Locked = True
-    txtMaintenanceWeeks.Locked = True
+    LoadAllFlyingWeekRatesFromSettings
 
-    ' Flying rates as HH:MM
-    LoadHoursMinutesSetting txtFW1HH, "FlyingWeek1HHRate"
-    LoadHoursMinutesSetting txtFW1E1, "FlyingWeek1E1Rate"
-    LoadHoursMinutesSetting txtFW1E2, "FlyingWeek1E2Rate"
+End Sub
 
-    LoadHoursMinutesSetting txtFW2HH, "FlyingWeek2HHRate"
-    LoadHoursMinutesSetting txtFW2E1, "FlyingWeek2E1Rate"
-    LoadHoursMinutesSetting txtFW2E2, "FlyingWeek2E2Rate"
+Private Sub txtFlyingWeeks_Change()
 
-    LoadHoursMinutesSetting txtFW3HH, "FlyingWeek3HHRate"
-    LoadHoursMinutesSetting txtFW3E1, "FlyingWeek3E1Rate"
-    LoadHoursMinutesSetting txtFW3E2, "FlyingWeek3E2Rate"
+    If m_IsLoading Then Exit Sub
+
+    UpdateCycleLengthFromForm
+    UpdateFlyingWeekRateVisibility
+
+End Sub
+
+Private Sub txtMaintenanceWeeks_Change()
+
+    If m_IsLoading Then Exit Sub
+
+    UpdateCycleLengthFromForm
 
 End Sub
 
@@ -353,18 +355,10 @@ Private Function ValidateSettingsForm() As Boolean
         If Not ValidateWholeNumberTextBox(txtWeeksBeforeForecast, "Weeks Before Forecast Start", 0, 520) Then Exit Function
     End If
 
-    If Not ValidateHoursMinutesTextBox(txtFW1HH, "Flying Week 1 HH") Then Exit Function
-    If Not ValidateHoursMinutesTextBox(txtFW1E1, "Flying Week 1 E1") Then Exit Function
-    If Not ValidateHoursMinutesTextBox(txtFW1E2, "Flying Week 1 E2") Then Exit Function
+    If Not ValidateWholeNumberTextBox(txtFlyingWeeks, "Flying Weeks", MIN_FLYING_WEEKS, MAX_FLYING_WEEKS) Then Exit Function
+    If Not ValidateWholeNumberTextBox(txtMaintenanceWeeks, "Maintenance Weeks", MIN_MAINTENANCE_WEEKS, MAX_MAINTENANCE_WEEKS) Then Exit Function
 
-    If Not ValidateHoursMinutesTextBox(txtFW2HH, "Flying Week 2 HH") Then Exit Function
-    If Not ValidateHoursMinutesTextBox(txtFW2E1, "Flying Week 2 E1") Then Exit Function
-    If Not ValidateHoursMinutesTextBox(txtFW2E2, "Flying Week 2 E2") Then Exit Function
-
-    If Not ValidateHoursMinutesTextBox(txtFW3HH, "Flying Week 3 HH") Then Exit Function
-    If Not ValidateHoursMinutesTextBox(txtFW3E1, "Flying Week 3 E1") Then Exit Function
-    If Not ValidateHoursMinutesTextBox(txtFW3E2, "Flying Week 3 E2") Then Exit Function
-    
+    If Not ValidateConfiguredFlyingWeekRates() Then Exit Function
     If Not ValidateYesNoComboBox(cmbEnableTaskAlignment, "Enable Task Alignment") Then Exit Function
 
     If YesNoToBoolean(cmbEnableTaskAlignment.Value) Then
@@ -395,17 +389,11 @@ Private Sub SaveSettingsFromForm()
 
     SetNamedRangeValue "WeeksShown", CLng(txtForecastLength.Value)
 
-    SaveHoursMinutesSetting txtFW1HH, "FlyingWeek1HHRate"
-    SaveHoursMinutesSetting txtFW1E1, "FlyingWeek1E1Rate"
-    SaveHoursMinutesSetting txtFW1E2, "FlyingWeek1E2Rate"
+    SetNamedRangeValue "FlyingWeeks", CLng(txtFlyingWeeks.Value)
+    SetNamedRangeValue "MaintenanceWeeks", CLng(txtMaintenanceWeeks.Value)
+    SetNamedRangeValue "CycleLength", CLng(txtFlyingWeeks.Value) + CLng(txtMaintenanceWeeks.Value)
 
-    SaveHoursMinutesSetting txtFW2HH, "FlyingWeek2HHRate"
-    SaveHoursMinutesSetting txtFW2E1, "FlyingWeek2E1Rate"
-    SaveHoursMinutesSetting txtFW2E2, "FlyingWeek2E2Rate"
-
-    SaveHoursMinutesSetting txtFW3HH, "FlyingWeek3HHRate"
-    SaveHoursMinutesSetting txtFW3E1, "FlyingWeek3E1Rate"
-    SaveHoursMinutesSetting txtFW3E2, "FlyingWeek3E2Rate"
+    SaveConfiguredFlyingWeekRates
     SetNamedRangeValue "EnableTaskAlignment", YesNoToBoolean(cmbEnableTaskAlignment.Value)
 
     If YesNoToBoolean(cmbEnableTaskAlignment.Value) Then
@@ -630,6 +618,7 @@ Private Sub ApplyPlannerSettingsVisibility()
 
     UpdateForecastFieldAvailability
     UpdateTaskGroupingFieldAvailability
+    UpdateFlyingWeekRateVisibility
 
     On Error Resume Next
     lblAlignmentPercentSuffix.Visible = txtAlignmentThreshold.Visible
@@ -663,5 +652,213 @@ Private Function YesNoToBoolean(ByVal inputValue As String) As Boolean
 
 End Function
 
+
+Private Sub UpdateCycleLengthFromForm()
+
+    Dim flyingWeeks As Long
+    Dim maintenanceWeeks As Long
+
+    If TryGetWholeNumber(txtFlyingWeeks.Value, flyingWeeks) And _
+       TryGetWholeNumber(txtMaintenanceWeeks.Value, maintenanceWeeks) Then
+
+        txtCycleLength.Value = CStr(flyingWeeks + maintenanceWeeks)
+
+    Else
+
+        txtCycleLength.Value = vbNullString
+
+    End If
+
+End Sub
+
+
+Private Sub UpdateFlyingWeekRateVisibility()
+
+    Dim configuredFlyingWeeks As Long
+    Dim flyingWeek As Long
+
+    If Not TryGetWholeNumber(txtFlyingWeeks.Value, configuredFlyingWeeks) Then
+        configuredFlyingWeeks = MAX_FLYING_WEEKS
+    End If
+
+    For flyingWeek = 1 To MAX_FLYING_WEEKS
+        SetFlyingWeekRowVisible flyingWeek, (flyingWeek <= configuredFlyingWeeks)
+    Next flyingWeek
+
+End Sub
+
+
+Private Sub SetFlyingWeekRowVisible(ByVal flyingWeek As Long, ByVal isVisible As Boolean)
+
+    Dim rateSuffix As Variant
+
+    On Error Resume Next
+
+    Me.Controls("lblFW" & CStr(flyingWeek)).Visible = isVisible
+
+    For Each rateSuffix In Array("HH", "E1", "E2")
+        Me.Controls("txtFW" & CStr(flyingWeek) & CStr(rateSuffix)).Visible = isVisible
+    Next rateSuffix
+
+    On Error GoTo 0
+
+End Sub
+
+
+Private Sub LoadAllFlyingWeekRatesFromSettings()
+
+    Dim flyingWeek As Long
+
+    For flyingWeek = 1 To MAX_FLYING_WEEKS
+        LoadFlyingWeekRatesFromSettings flyingWeek
+    Next flyingWeek
+
+End Sub
+
+
+Private Sub LoadFlyingWeekRatesFromSettings(ByVal flyingWeek As Long)
+
+    Dim rateSuffix As Variant
+    Dim rangeName As String
+    Dim textBoxControl As Object
+
+    For Each rateSuffix In Array("HH", "E1", "E2")
+
+        rangeName = BuildFlyingWeekRateRangeName(flyingWeek, CStr(rateSuffix))
+
+        If TryGetFlyingWeekRateTextBox(flyingWeek, CStr(rateSuffix), textBoxControl) Then
+
+            If NamedRangeExists(rangeName) Then
+                LoadHoursMinutesSetting textBoxControl, rangeName
+            Else
+                textBoxControl.Value = vbNullString
+            End If
+
+        End If
+
+    Next rateSuffix
+
+End Sub
+
+
+Private Function ValidateConfiguredFlyingWeekRates() As Boolean
+
+    ValidateConfiguredFlyingWeekRates = False
+
+    Dim configuredFlyingWeeks As Long
+    configuredFlyingWeeks = CLng(txtFlyingWeeks.Value)
+
+    Dim flyingWeek As Long
+    Dim rateSuffix As Variant
+    Dim textBoxControl As Object
+    Dim displayName As String
+
+    For flyingWeek = 1 To configuredFlyingWeeks
+
+        For Each rateSuffix In Array("HH", "E1", "E2")
+
+            If Not TryGetFlyingWeekRateTextBox(flyingWeek, CStr(rateSuffix), textBoxControl) Then
+
+                MsgBox "Flying Week " & flyingWeek & " " & rateSuffix & _
+                       " control is missing from Planner Settings." & vbCrLf & vbCrLf & _
+                       "Add txtFW" & flyingWeek & rateSuffix & " to the form for cycles with " & _
+                       configuredFlyingWeeks & " flying weeks.", _
+                       vbExclamation, _
+                       "Planner Settings"
+
+                Exit Function
+
+            End If
+
+            displayName = "Flying Week " & flyingWeek & " " & rateSuffix
+
+            If Not ValidateHoursMinutesTextBox(textBoxControl, displayName) Then Exit Function
+
+        Next rateSuffix
+
+    Next flyingWeek
+
+    ValidateConfiguredFlyingWeekRates = True
+
+End Function
+
+
+Private Sub SaveConfiguredFlyingWeekRates()
+
+    Dim configuredFlyingWeeks As Long
+    configuredFlyingWeeks = CLng(txtFlyingWeeks.Value)
+
+    Dim flyingWeek As Long
+    Dim rateSuffix As Variant
+    Dim textBoxControl As Object
+    Dim rangeName As String
+
+    For flyingWeek = 1 To configuredFlyingWeeks
+
+        For Each rateSuffix In Array("HH", "E1", "E2")
+
+            rangeName = BuildFlyingWeekRateRangeName(flyingWeek, CStr(rateSuffix))
+
+            If TryGetFlyingWeekRateTextBox(flyingWeek, CStr(rateSuffix), textBoxControl) Then
+                SaveHoursMinutesSetting textBoxControl, rangeName
+            End If
+
+        Next rateSuffix
+
+    Next flyingWeek
+
+End Sub
+
+
+Private Function BuildFlyingWeekRateRangeName(ByVal flyingWeek As Long, _
+                                              ByVal rateSuffix As String) As String
+
+    BuildFlyingWeekRateRangeName = "FlyingWeek" & CStr(flyingWeek) & rateSuffix & "Rate"
+
+End Function
+
+
+Private Function TryGetFlyingWeekRateTextBox(ByVal flyingWeek As Long, _
+                                             ByVal rateSuffix As String, _
+                                             ByRef textBoxControl As Object) As Boolean
+
+    On Error Resume Next
+
+    Set textBoxControl = Me.Controls("txtFW" & CStr(flyingWeek) & rateSuffix)
+    TryGetFlyingWeekRateTextBox = (Err.Number = 0 And Not textBoxControl Is Nothing)
+
+    On Error GoTo 0
+
+End Function
+
+
+Private Function NamedRangeExists(ByVal rangeName As String) As Boolean
+
+    On Error Resume Next
+
+    Dim targetRange As Range
+    Set targetRange = ThisWorkbook.Names(rangeName).RefersToRange
+
+    NamedRangeExists = (Err.Number = 0 And Not targetRange Is Nothing)
+
+    On Error GoTo 0
+
+End Function
+
+
+Private Function TryGetWholeNumber(ByVal inputValue As String, _
+                                   ByRef outputValue As Long) As Boolean
+
+    TryGetWholeNumber = False
+
+    If Len(Trim$(inputValue)) = 0 Then Exit Function
+    If Not IsNumeric(inputValue) Then Exit Function
+
+    If CLng(inputValue) <> CDbl(inputValue) Then Exit Function
+
+    outputValue = CLng(inputValue)
+    TryGetWholeNumber = True
+
+End Function
 
 

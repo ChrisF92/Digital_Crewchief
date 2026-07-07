@@ -18,6 +18,12 @@ Public Const CLR_PULLED As Long = 13421823
 Public Const CLR_PUSHED As Long = 10092543
 Public Const CLR_AUTOPUSH As Long = 6118911
 
+' --- Cycle structure limits ---
+Public Const MIN_FLYING_WEEKS As Long = 1
+Public Const MAX_FLYING_WEEKS As Long = 5
+Public Const MIN_MAINTENANCE_WEEKS As Long = 1
+Public Const MAX_MAINTENANCE_WEEKS As Long = 3
+
 ' --- Rotation colours ---
 Public Const CLR_FLY1 As Long = 14348800
 Public Const CLR_FLY2 As Long = 13762521

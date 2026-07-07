@@ -158,15 +158,11 @@ Private Sub ApplyFlyingRatesForCyclePosition(ByRef schedule As AircraftRotationS
                                              ByVal weekIndex As Long, _
                                              ByVal cyclePosition As Long)
 
-    If cyclePosition <= settings.flyingWeeks Then
+    If cyclePosition >= 1 And cyclePosition <= settings.flyingWeeks Then
 
-        If cyclePosition >= 1 And cyclePosition <= 3 Then
-            schedule.weekHHRates(weekIndex) = plannerRates.HHRates(cyclePosition)
-            schedule.weekE1Rates(weekIndex) = plannerRates.E1Rates(cyclePosition)
-            schedule.weekE2Rates(weekIndex) = plannerRates.E2Rates(cyclePosition)
-        Else
-            ClearFlyingRates schedule, weekIndex
-        End If
+        schedule.weekHHRates(weekIndex) = plannerRates.HHRates(cyclePosition)
+        schedule.weekE1Rates(weekIndex) = plannerRates.E1Rates(cyclePosition)
+        schedule.weekE2Rates(weekIndex) = plannerRates.E2Rates(cyclePosition)
 
     Else
 
