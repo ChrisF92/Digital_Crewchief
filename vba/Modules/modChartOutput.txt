@@ -95,11 +95,7 @@ Public Sub PopulateAircraftChart(ByVal chartWs As Worksheet, _
         weekCyclePositions, _
         chartAggregation
 
-    HighlightCurrentWeekOnChart _
-        chartWs, _
-        settings, _
-        weekStartDates, _
-        chartTaskRowCount + CHART_FIRST_TASK_ROW - 1
+    HighlightCurrentWeekOnChart chartWs, settings, weekStartDates
 
 End Sub
 

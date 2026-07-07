@@ -313,16 +313,15 @@ End Sub
 
 
 '------------------------------------------------------------------------------
-' Purpose : Highlights the current calendar week column on an aircraft chart.
+' Purpose : Highlights the current calendar week date cell on an aircraft chart.
 ' Input : chartWs - aircraft chart worksheet.
 ' settings - validated planner settings.
 ' weekStartDates - visible planner week start dates.
-' lastTaskRow - last populated task row on the chart.
+' Notes : Only row 4 (week dates) is highlighted so task cell fills are not obscured.
 '------------------------------------------------------------------------------
 Public Sub HighlightCurrentWeekOnChart(ByVal chartWs As Worksheet, _
                                        ByRef settings As PlannerSettings, _
-                                       ByRef weekStartDates() As Date, _
-                                       ByVal lastTaskRow As Long)
+                                       ByRef weekStartDates() As Date)
 
     Dim currentWeekIndex As Long
     currentWeekIndex = FindDisplayWeekIndex( _
@@ -335,15 +334,10 @@ Public Sub HighlightCurrentWeekOnChart(ByVal chartWs As Worksheet, _
     Dim targetColumn As Long
     targetColumn = CHART_FIRST_WEEK_COL + currentWeekIndex - 1
 
-    Dim bottomRow As Long
-    bottomRow = Application.Max(CHART_DATE_ROW, lastTaskRow)
+    Dim targetCell As Range
+    Set targetCell = chartWs.Cells(CHART_DATE_ROW, targetColumn)
 
-    Dim targetRange As Range
-    Set targetRange = chartWs.Range( _
-        chartWs.Cells(CHART_HEADER_ROW, targetColumn), _
-        chartWs.Cells(bottomRow, targetColumn))
-
-    With targetRange
+    With targetCell
         .Interior.Color = CLR_CURRENT_WEEK
 
         With .Borders(xlEdgeLeft)
