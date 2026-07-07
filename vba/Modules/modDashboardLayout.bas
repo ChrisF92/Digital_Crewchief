@@ -1,0 +1,726 @@
+Attribute VB_Name = "modDashboardLayout"
+Option Explicit
+
+'------------------------------------------------------------------------------
+' Module : modDashboardLayout
+' Purpose : Handles dashboard clearing, headers, column widths, and basic
+' dashboard formatting.
+'------------------------------------------------------------------------------
+
+Private Const DASHBOARD_SHEET_NAME As String = "Dashboard"
+
+Private Const DASHBOARD_BANNER_ROW As Long = 3
+Public Const DASHBOARD_HEADER_ROW As Long = 4
+Private Const DASHBOARD_FIRST_COL As Long = 1
+Private Const DASHBOARD_LAST_COL As Long = 11
+Private Const DASHBOARD_COL_REIMPORT As Long = 11
+
+Public Const DASHBOARD_REIMPORT_BTN_PREFIX As String = "dashReimport_"
+
+Private Const DASHBOARD_HEADER_BLUE As Long = 9851952 ' RGB(47, 84, 150)
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns the Dashboard worksheet.
+' Output : Dashboard worksheet object.
+'------------------------------------------------------------------------------
+Public Function GetDashboardWorksheet() As Worksheet
+
+    Set GetDashboardWorksheet = ThisWorkbook.Worksheets(DASHBOARD_SHEET_NAME)
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Clears existing dashboard summary data, formatting, and hyperlinks.
+' Input : dashboardWs - Dashboard worksheet.
+' maxSlots - maximum aircraft slots configured for the planner.
+'------------------------------------------------------------------------------
+Public Sub ClearDashboardSummary(ByVal dashboardWs As Worksheet, _
+                                 ByVal maxSlots As Long)
+
+    ClearDashboardReimportButtons dashboardWs
+    ClearDashboardImportBanner dashboardWs
+
+    Dim lastDashboardRow As Long
+    lastDashboardRow = DASHBOARD_HEADER_ROW + maxSlots
+
+    With dashboardWs.Range( _
+        dashboardWs.Cells(DASHBOARD_HEADER_ROW, DASHBOARD_FIRST_COL), _
+        dashboardWs.Cells(lastDashboardRow, DASHBOARD_LAST_COL))
+
+        .ClearContents
+        .Interior.ColorIndex = xlNone
+        .Borders.LineStyle = xlNone
+
+        With .Font
+            .Color = RGB(0, 0, 0)
+            .Underline = xlUnderlineStyleNone
+        End With
+
+    End With
+
+    ClearCommentsInRange dashboardWs.Range( _
+        dashboardWs.Cells(DASHBOARD_HEADER_ROW + 1, DASHBOARD_FIRST_COL), _
+        dashboardWs.Cells(lastDashboardRow, DASHBOARD_LAST_COL))
+
+    Dim dashboardLink As Hyperlink
+
+    For Each dashboardLink In dashboardWs.Hyperlinks
+        dashboardLink.Delete
+    Next dashboardLink
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Writes and formats dashboard column headers.
+' Input : dashboardWs - Dashboard worksheet.
+'------------------------------------------------------------------------------
+Public Sub WriteDashboardHeaders(ByVal dashboardWs As Worksheet)
+
+    Dim dashboardHeaders As Variant
+
+    dashboardHeaders = Array( _
+        "Tail Number", _
+        "Current Rotation", _
+        "Days to Maint", _
+        "Due This Cycle", _
+        "Due Next Cycle", _
+        "Due Next Maint Cycle", _
+        "Extensions Required", _
+        "Critical Tasks", _
+        "Chart", _
+        "Last Import", _
+        "Reimport" _
+    )
+
+    Dim headerIndex As Long
+
+    For headerIndex = LBound(dashboardHeaders) To UBound(dashboardHeaders)
+
+        With dashboardWs.Cells(DASHBOARD_HEADER_ROW, DASHBOARD_FIRST_COL + headerIndex)
+            .Value = dashboardHeaders(headerIndex)
+            .Font.Name = "Arial"
+            .Font.Size = 10
+            .Font.Bold = True
+            .Font.Color = RGB(255, 255, 255)
+            .Interior.Color = RGB(47, 84, 150)
+            .HorizontalAlignment = xlCenter
+            .VerticalAlignment = xlCenter
+            .WrapText = True
+        End With
+
+    Next headerIndex
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Applies dashboard column widths.
+' Input : dashboardWs - Dashboard worksheet.
+'------------------------------------------------------------------------------
+Public Sub ApplyDashboardColumnWidths(ByVal dashboardWs As Worksheet)
+
+    dashboardWs.Columns("A").ColumnWidth = 14
+    dashboardWs.Columns("B").ColumnWidth = 14
+    dashboardWs.Columns("C").ColumnWidth = 14
+    dashboardWs.Columns("D").ColumnWidth = 32
+    dashboardWs.Columns("E").ColumnWidth = 32
+    dashboardWs.Columns("F").ColumnWidth = 34
+    dashboardWs.Columns("G").ColumnWidth = 28
+    dashboardWs.Columns("H").ColumnWidth = 28
+    dashboardWs.Columns("I").ColumnWidth = 16
+    dashboardWs.Columns("J").ColumnWidth = 16
+    dashboardWs.Columns("K").ColumnWidth = 14
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Prepares the dashboard ready for a full refresh.
+' Input : maxSlots - maximum aircraft slots configured for the planner.
+' Output : Dashboard worksheet object.
+'------------------------------------------------------------------------------
+Public Function PrepareDashboard(ByVal maxSlots As Long) As Worksheet
+
+    Dim dashboardWs As Worksheet
+    Set dashboardWs = GetDashboardWorksheet()
+
+    ClearDashboardSummary dashboardWs, maxSlots
+    WriteDashboardHeaders dashboardWs
+    ApplyDashboardColumnWidths dashboardWs
+
+    Set PrepareDashboard = dashboardWs
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Writes the dashboard import-status banner above the table headers.
+' Input : dashboardWs - Dashboard worksheet.
+' tailNumbers - active aircraft tail numbers.
+' aircraftCount - number of aircraft in the roster.
+'------------------------------------------------------------------------------
+Public Sub WriteDashboardImportBanner(ByVal dashboardWs As Worksheet, _
+                                      ByRef tailNumbers() As String, _
+                                      ByVal aircraftCount As Long)
+
+    Dim bannerRange As Range
+    Set bannerRange = dashboardWs.Range( _
+        dashboardWs.Cells(DASHBOARD_BANNER_ROW, DASHBOARD_FIRST_COL), _
+        dashboardWs.Cells(DASHBOARD_BANNER_ROW, DASHBOARD_LAST_COL))
+
+    On Error Resume Next
+    bannerRange.UnMerge
+    On Error GoTo 0
+
+    With bannerRange
+        .ClearContents
+        .Interior.ColorIndex = xlNone
+        .WrapText = True
+        .HorizontalAlignment = xlLeft
+        .VerticalAlignment = xlCenter
+        .Font.Name = "Arial"
+        .Font.Size = 10
+        .Font.Bold = False
+        .Font.Color = RGB(0, 0, 0)
+        .Merge
+    End With
+
+    If aircraftCount = 0 Then
+        dashboardWs.Rows(DASHBOARD_BANNER_ROW).RowHeight = 18
+        Exit Sub
+    End If
+
+    Dim staleCount As Long
+    staleCount = CountOutOfDateImports(tailNumbers, aircraftCount)
+
+    If staleCount = 0 Then
+        bannerRange.Value = "All aircraft have current SITS imports for this week."
+        bannerRange.Interior.Color = RGB(226, 239, 218)
+    Else
+        bannerRange.Value = staleCount & " of " & aircraftCount & _
+            " aircraft need a SITS re-import this week. Use the Reimport button on the dashboard or chart."
+        bannerRange.Interior.Color = RGB(244, 204, 204)
+        bannerRange.Font.Color = RGB(156, 0, 6)
+        bannerRange.Font.Bold = True
+    End If
+
+    dashboardWs.Rows(DASHBOARD_BANNER_ROW).RowHeight = 24
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Creates Reimport buttons for each dashboard aircraft row.
+' Input : dashboardWs - Dashboard worksheet.
+' tailNumbers - active aircraft tail numbers.
+' aircraftCount - number of aircraft in the roster.
+' Notes : Called after row heights are finalised during RefreshAll.
+'------------------------------------------------------------------------------
+Public Sub LayoutDashboardReimportButtons(ByVal dashboardWs As Worksheet, _
+                                          ByRef tailNumbers() As String, _
+                                          ByVal aircraftCount As Long)
+
+    ClearDashboardReimportButtons dashboardWs
+
+    Dim aircraftIndex As Long
+
+    For aircraftIndex = 1 To aircraftCount
+        AddDashboardReimportButton _
+            dashboardWs, _
+            DASHBOARD_HEADER_ROW + aircraftIndex, _
+            tailNumbers(aircraftIndex)
+    Next aircraftIndex
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Writes one aircraft row to the Dashboard sheet.
+' Input : dashboardWs - Dashboard worksheet.
+' aircraftIndex - aircraft index within the active roster.
+' tailNumber - aircraft tail number.
+' currentRotationText - current flying/maintenance status.
+' daysToMaintenance - days to next maintenance or ETBOL text.
+' chartWs - aircraft chart worksheet.
+' importWs - aircraft import worksheet.
+' dashboardBuckets - populated dashboard summary buckets.
+'------------------------------------------------------------------------------
+Public Sub WriteAircraftDashboardRow(ByVal dashboardWs As Worksheet, _
+                                     ByVal aircraftIndex As Long, _
+                                     ByVal tailNumber As String, _
+                                     ByVal currentRotationText As String, _
+                                     ByVal daysToMaintenance As Variant, _
+                                     ByVal chartWs As Worksheet, _
+                                     ByVal importWs As Worksheet, _
+                                     ByRef dashboardBuckets As DashboardSummaryBuckets)
+
+    Dim dashboardRow As Long
+    dashboardRow = DASHBOARD_HEADER_ROW + aircraftIndex
+
+    dashboardWs.Cells(dashboardRow, 1).Value = tailNumber
+    dashboardWs.Cells(dashboardRow, 2).Value = currentRotationText
+    dashboardWs.Cells(dashboardRow, 3).Value = daysToMaintenance
+
+    Dim dueBeforeSummary As Object
+    Dim dueBeforeDetails As Object
+    Set dueBeforeSummary = dashboardBuckets.DueThisCycle.Summary
+    Set dueBeforeDetails = dashboardBuckets.DueThisCycle.Details
+
+    Dim maintenanceSummary As Object
+    Dim maintenanceDetails As Object
+    Set maintenanceSummary = dashboardBuckets.DueNextCycle.Summary
+    Set maintenanceDetails = dashboardBuckets.DueNextCycle.Details
+    
+    Dim nextMaintenanceSummary As Object
+    Dim nextMaintenanceDetails As Object
+    Set nextMaintenanceSummary = dashboardBuckets.DueNextMaintenanceCycle.Summary
+    Set nextMaintenanceDetails = dashboardBuckets.DueNextMaintenanceCycle.Details
+
+    Dim extensionSummary As Object
+    Dim extensionDetails As Object
+    Set extensionSummary = dashboardBuckets.ExtensionsRequired.Summary
+    Set extensionDetails = dashboardBuckets.ExtensionsRequired.Details
+
+    Dim criticalSummary As Object
+    Dim criticalDetails As Object
+    Set criticalSummary = dashboardBuckets.CriticalTasks.Summary
+    Set criticalDetails = dashboardBuckets.CriticalTasks.Details
+
+    WriteDashboardSummaryCell dashboardWs.Cells(dashboardRow, 4), dueBeforeSummary, dueBeforeDetails
+    WriteDashboardSummaryCell dashboardWs.Cells(dashboardRow, 5), maintenanceSummary, maintenanceDetails
+    WriteDashboardSummaryCell dashboardWs.Cells(dashboardRow, 6), nextMaintenanceSummary, nextMaintenanceDetails
+    WriteDashboardSummaryCell dashboardWs.Cells(dashboardRow, 7), extensionSummary, extensionDetails
+    WriteDashboardSummaryCell dashboardWs.Cells(dashboardRow, 8), criticalSummary, criticalDetails
+
+    AddDashboardSheetLink dashboardWs.Cells(dashboardRow, 9), chartWs, "Open Chart"
+    WriteDashboardImportCell dashboardWs.Cells(dashboardRow, 10), importWs
+
+    FormatAircraftDashboardRow dashboardWs, dashboardRow
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Writes a dashboard summary cell and attaches detail text as a comment.
+' Input : targetCell - Dashboard cell to write.
+' summaryDictionary - summary counts by interval label.
+' detailDictionary - detailed task lines by interval label.
+'------------------------------------------------------------------------------
+Private Sub WriteDashboardSummaryCell(ByVal targetCell As Range, _
+                                      ByVal summaryDictionary As Object, _
+                                      ByVal detailDictionary As Object)
+
+    ClearCellComment targetCell
+
+    With targetCell
+        .Value = vbNullString
+        .WrapText = True
+        .VerticalAlignment = xlCenter
+        .HorizontalAlignment = xlLeft
+        .Interior.ColorIndex = xlNone
+    End With
+
+    If summaryDictionary Is Nothing Then Exit Sub
+    If summaryDictionary.Count = 0 Then Exit Sub
+
+    ' Visible cell text is deliberately compact.
+    ' The full task detail is stored in the cell comment.
+    targetCell.Value = BuildDashboardCellDisplayText(summaryDictionary)
+
+    ApplyDashboardSummaryFill targetCell, summaryDictionary
+
+    Dim commentText As String
+    commentText = BuildSummaryCommentText(summaryDictionary, detailDictionary)
+
+    If Len(commentText) > 0 Then
+        targetCell.AddComment CapCommentLength(commentText)
+
+        With targetCell.Comment
+            .Visible = False
+
+            With .Shape
+                .Width = 440
+                .Height = 280
+                .TextFrame.AutoSize = False
+
+                With .TextFrame.Characters.Font
+                    .Name = "Arial"
+                    .Size = 9
+                End With
+            End With
+        End With
+    End If
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds compact visible dashboard cell text.
+' Example : "HH 25: 3" & line break & "E1 50: 1" & line break & "+ 2 more..."
+'------------------------------------------------------------------------------
+Private Function BuildDashboardCellDisplayText(ByVal summaryDictionary As Object) As String
+
+    Const MAX_VISIBLE_LINES As Long = 3
+
+    Dim result As String
+    Dim key As Variant
+    Dim lineCount As Long
+    Dim hiddenLineCount As Long
+
+    If summaryDictionary Is Nothing Then
+        BuildDashboardCellDisplayText = vbNullString
+        Exit Function
+    End If
+
+    hiddenLineCount = summaryDictionary.Count - MAX_VISIBLE_LINES
+
+    For Each key In summaryDictionary.Keys
+
+        lineCount = lineCount + 1
+
+        If lineCount > MAX_VISIBLE_LINES Then
+            If hiddenLineCount > 0 Then
+                result = result & vbLf & "+ " & CStr(hiddenLineCount) & " more..."
+            End If
+            Exit For
+        End If
+
+        If Len(result) > 0 Then result = result & vbLf
+
+        result = result & CStr(key) & ": " & CStr(summaryDictionary(key))
+
+    Next key
+
+    BuildDashboardCellDisplayText = result
+
+End Function
+
+
+
+'------------------------------------------------------------------------------
+' Purpose : Applies dashboard fill colour based on whether a summary cell has data.
+' Notes : This restores visual highlighting after moving dashboard writing into
+' modDashboardLayout.
+'------------------------------------------------------------------------------
+Private Sub ApplyDashboardSummaryFill(ByVal targetCell As Range, _
+                                      ByVal summaryDictionary As Object)
+
+    If summaryDictionary Is Nothing Then
+        targetCell.Interior.ColorIndex = xlNone
+        Exit Sub
+    End If
+
+    If summaryDictionary.Count = 0 Then
+        targetCell.Interior.ColorIndex = xlNone
+        Exit Sub
+    End If
+
+    Select Case targetCell.Column
+
+        Case 4
+            ' Due this cycle / before maintenance.
+            targetCell.Interior.Color = RGB(255, 242, 204) ' light amber
+
+        Case 5
+            ' Due in next/current maintenance window.
+            targetCell.Interior.Color = RGB(226, 239, 218) ' light green
+            
+        Case 6
+            ' Due next maintenance cycle
+            targetCell.Interior.Color = RGB(221, 235, 247) ' light blue
+
+        Case 7
+            ' Extensions required.
+            targetCell.Interior.Color = RGB(248, 203, 173) ' light orange
+
+        Case 8
+            ' Critical tasks.
+            targetCell.Interior.Color = RGB(244, 204, 204) ' light red
+
+        Case Else
+            targetCell.Interior.Color = RGB(242, 242, 242) ' light grey
+
+    End Select
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds the full hover-comment text for a dashboard summary cell.
+'------------------------------------------------------------------------------
+Private Function BuildSummaryCommentText(ByVal summaryDictionary As Object, _
+                                         ByVal detailDictionary As Object) As String
+
+    Dim result As String
+    Dim key As Variant
+
+    For Each key In summaryDictionary.Keys
+
+        If Len(result) > 0 Then result = result & vbLf & vbLf
+
+        result = result & CStr(key) & " - " & CStr(summaryDictionary(key)) & " task(s):"
+
+        If Not detailDictionary Is Nothing Then
+            If detailDictionary.Exists(key) Then
+                result = result & vbLf & CStr(detailDictionary(key))
+            End If
+        End If
+
+    Next key
+
+    BuildSummaryCommentText = result
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Writes the last-import date for one aircraft and links to its import sheet.
+' Input : targetCell - Dashboard import column cell.
+' importWs - aircraft import worksheet.
+' Notes : Highlights red when the import is missing or from a previous week.
+'------------------------------------------------------------------------------
+Private Sub WriteDashboardImportCell(ByVal targetCell As Range, _
+                                       ByVal importWs As Worksheet)
+
+    ClearCellComment targetCell
+
+    Dim lastImport As Variant
+    lastImport = GetLastImportTime(importWs)
+
+    Dim displayText As String
+    Dim isCurrentWeek As Boolean
+
+    If IsEmpty(lastImport) Or Not IsDate(lastImport) Then
+        displayText = "Not imported"
+        isCurrentWeek = False
+    Else
+        displayText = Format$(CDate(lastImport), "DD/MM/YYYY")
+        isCurrentWeek = IsImportCurrentWeek(importWs)
+    End If
+
+    AddDashboardSheetLink targetCell, importWs, displayText
+
+    If isCurrentWeek Then
+        targetCell.Interior.ColorIndex = xlNone
+    Else
+        targetCell.Interior.Color = RGB(244, 204, 204)
+
+        Dim commentText As String
+
+        If displayText = "Not imported" Then
+            commentText = "No SITS data has been imported for this aircraft." & vbLf & vbLf & _
+                          "Import the current export to update the planner."
+        Else
+            commentText = "Last import: " & Format$(CDate(lastImport), "DD/MM/YYYY HH:MM") & vbLf & vbLf & _
+                          "Import data is from a previous week." & vbLf & _
+                          "Re-import the current SITS export to update the planner."
+        End If
+
+        targetCell.AddComment CapCommentLength(commentText)
+
+        With targetCell.Comment
+            .Visible = False
+
+            With .Shape
+                .Width = 320
+                .Height = 120
+                .TextFrame.AutoSize = False
+
+                With .TextFrame.Characters.Font
+                    .Name = "Arial"
+                    .Size = 9
+                End With
+            End With
+        End With
+    End If
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Adds a worksheet hyperlink to a dashboard cell.
+'------------------------------------------------------------------------------
+Private Sub AddDashboardSheetLink(ByVal targetCell As Range, _
+                                  ByVal targetSheet As Worksheet, _
+                                  ByVal linkText As String)
+
+    targetCell.Worksheet.Hyperlinks.Add _
+        Anchor:=targetCell, _
+        Address:=vbNullString, _
+        SubAddress:="'" & targetSheet.Name & "'!A1", _
+        TextToDisplay:=linkText
+
+    With targetCell.Font
+        .Color = RGB(5, 99, 193)
+        .Underline = xlUnderlineStyleSingle
+    End With
+
+    targetCell.HorizontalAlignment = xlCenter
+    targetCell.VerticalAlignment = xlCenter
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Applies row-level dashboard formatting.
+'------------------------------------------------------------------------------
+Private Sub FormatAircraftDashboardRow(ByVal dashboardWs As Worksheet, _
+                                       ByVal dashboardRow As Long)
+
+    Dim rowRange As Range
+    Set rowRange = dashboardWs.Range( _
+        dashboardWs.Cells(dashboardRow, 1), _
+        dashboardWs.Cells(dashboardRow, DASHBOARD_LAST_COL))
+
+    With rowRange
+        .Font.Name = "Arial"
+        .Font.Size = 10
+        .VerticalAlignment = xlCenter
+        .WrapText = True
+
+        With .Borders
+            .LineStyle = xlContinuous
+            .Color = RGB(200, 200, 200)
+            .Weight = xlThin
+        End With
+    End With
+
+    dashboardWs.Cells(dashboardRow, 1).Font.Bold = True
+    dashboardWs.Cells(dashboardRow, 1).HorizontalAlignment = xlCenter
+
+    dashboardWs.Cells(dashboardRow, 2).HorizontalAlignment = xlCenter
+    dashboardWs.Cells(dashboardRow, 3).HorizontalAlignment = xlCenter
+
+    dashboardWs.Cells(dashboardRow, 4).HorizontalAlignment = xlLeft
+    dashboardWs.Cells(dashboardRow, 5).HorizontalAlignment = xlLeft
+    dashboardWs.Cells(dashboardRow, 6).HorizontalAlignment = xlLeft
+    dashboardWs.Cells(dashboardRow, 7).HorizontalAlignment = xlLeft
+    dashboardWs.Cells(dashboardRow, 8).HorizontalAlignment = xlLeft
+    
+    dashboardWs.Cells(dashboardRow, 4).WrapText = True
+    dashboardWs.Cells(dashboardRow, 5).WrapText = True
+    dashboardWs.Cells(dashboardRow, 6).WrapText = True
+    dashboardWs.Cells(dashboardRow, 7).WrapText = True
+    dashboardWs.Cells(dashboardRow, 8).WrapText = True
+    
+    dashboardWs.Cells(dashboardRow, 9).HorizontalAlignment = xlCenter
+    dashboardWs.Cells(dashboardRow, 10).HorizontalAlignment = xlCenter
+    dashboardWs.Cells(dashboardRow, 11).HorizontalAlignment = xlCenter
+
+    dashboardWs.Rows(dashboardRow).RowHeight = 48
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Adds a Reimport button to one dashboard aircraft row.
+'------------------------------------------------------------------------------
+Private Sub AddDashboardReimportButton(ByVal dashboardWs As Worksheet, _
+                                       ByVal dashboardRow As Long, _
+                                       ByVal tailNumber As String)
+
+    Dim buttonCell As Range
+    Set buttonCell = dashboardWs.Cells(dashboardRow, DASHBOARD_COL_REIMPORT)
+
+    Dim buttonLeft As Double
+    Dim buttonTop As Double
+    Dim buttonWidth As Double
+    Dim buttonHeight As Double
+
+    buttonLeft = buttonCell.Left + 2
+    buttonTop = buttonCell.Top + 4
+    buttonWidth = buttonCell.Width - 4
+    buttonHeight = buttonCell.Height - 8
+
+    Dim reimportButton As Button
+    Set reimportButton = dashboardWs.Buttons.Add(buttonLeft, buttonTop, buttonWidth, buttonHeight)
+
+    With reimportButton
+        .Caption = "Reimport"
+        .OnAction = "ReimportFromDashboardButton"
+        .Name = "dashReimport_" & CStr(dashboardRow)
+        .Font.Size = 8
+    End With
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Removes dashboard Reimport buttons before a refresh.
+'------------------------------------------------------------------------------
+Private Sub ClearDashboardReimportButtons(ByVal dashboardWs As Worksheet)
+
+    Dim dashboardShape As Shape
+
+    For Each dashboardShape In dashboardWs.Shapes
+        If dashboardShape.Name Like DASHBOARD_REIMPORT_BTN_PREFIX & "*" Then
+            dashboardShape.Delete
+        End If
+    Next dashboardShape
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Clears the dashboard import-status banner.
+'------------------------------------------------------------------------------
+Private Sub ClearDashboardImportBanner(ByVal dashboardWs As Worksheet)
+
+    Dim bannerRange As Range
+    Set bannerRange = dashboardWs.Range( _
+        dashboardWs.Cells(DASHBOARD_BANNER_ROW, DASHBOARD_FIRST_COL), _
+        dashboardWs.Cells(DASHBOARD_BANNER_ROW, DASHBOARD_LAST_COL))
+
+    On Error Resume Next
+    bannerRange.UnMerge
+    On Error GoTo 0
+
+    With bannerRange
+        .ClearContents
+        .Interior.ColorIndex = xlNone
+        .Font.Color = RGB(0, 0, 0)
+        .Font.Bold = False
+    End With
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Clears comments from every cell in a range.
+'------------------------------------------------------------------------------
+Private Sub ClearCommentsInRange(ByVal targetRange As Range)
+
+    Dim targetCell As Range
+
+    For Each targetCell In targetRange.Cells
+
+        On Error Resume Next
+
+        If Not targetCell.Comment Is Nothing Then
+            targetCell.Comment.Delete
+        End If
+
+        On Error GoTo 0
+
+    Next targetCell
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Deletes an existing cell comment if one exists.
+'------------------------------------------------------------------------------
+Private Sub ClearCellComment(ByVal targetCell As Range)
+
+    On Error Resume Next
+    If Not targetCell.Comment Is Nothing Then
+        targetCell.Comment.Delete
+    End If
+    On Error GoTo 0
+
+End Sub
+
+

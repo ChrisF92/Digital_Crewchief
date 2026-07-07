@@ -1,0 +1,692 @@
+Attribute VB_Name = "frmAircraftManager"
+Attribute VB_Base = "0{1D835E6C-CA42-49D6-BFA4-C4270825DBBD}{6E661F73-4CAC-4B97-A1CB-51FF06C30B56}"
+Attribute VB_GlobalNameSpace = False
+Attribute VB_Creatable = False
+Attribute VB_PredeclaredId = True
+Attribute VB_Exposed = False
+Attribute VB_TemplateDerived = False
+Attribute VB_Customizable = False
+
+Option Explicit
+
+' Layout is designed in the VBA UserForm designer.
+' Code only toggles control visibility and enabled state.
+
+Private Const ROTATION_SHEET_NAME As String = "Rotation"
+
+Private Const FIRST_AIRCRAFT_ROW As Long = 5
+
+Private Const COL_TAIL_NUMBER As Long = 2
+Private Const COL_PLANNING_MODE As Long = 3
+Private Const COL_CYCLE_REFERENCE_DATE As Long = 4
+Private Const COL_CYCLE_WEEK_AT_REFERENCE As Long = 5
+Private Const COL_CALCULATED_CYCLE_WEEK As Long = 6
+Private Const COL_DOWN_START_DATE As Long = 7
+Private Const COL_EXPECTED_RETURN_DATE As Long = 8
+Private Const COL_REMARKS As Long = 9
+Private Const COL_CYCLE_WEEK_ON_RETURN As Long = 10
+
+Private Const PLANNING_MODE_IN_CYCLE As String = "In Cycle"
+Private Const PLANNING_MODE_DOWN_MAINTENANCE As String = "Down Maintenance"
+
+Private Sub UserForm_Initialize()
+
+    Me.Caption = "Aircraft Manager"
+
+    LoadAircraftList
+    LoadPlanningModeList
+    LoadCycleWeekLists
+
+    txtEffectiveFrom.Value = Format$(GetForecastStartDate(), "dd/mm/yyyy")
+    txtCurrentCycle.Enabled = False
+
+    If cmbAircraft.ListCount > 0 Then
+        cmbAircraft.listIndex = 0
+    Else
+        UpdateFormState
+    End If
+
+End Sub
+
+Private Sub cmbAircraft_Change()
+
+    If Len(Trim$(cmbAircraft.Value)) = 0 Then Exit Sub
+
+    LoadSelectedAircraftDetails
+
+End Sub
+
+Private Sub cmbPlanningMode_Change()
+
+    UpdateAircraftManagerVisibility
+
+End Sub
+
+Private Sub cmdApply_Click()
+
+    Dim tailNumber As String
+    tailNumber = Trim$(cmbAircraft.Value)
+
+    If Len(tailNumber) = 0 Then
+        MsgBox "Please select an aircraft.", vbExclamation, "Aircraft Manager"
+        Exit Sub
+    End If
+
+    Dim rowNumber As Long
+    rowNumber = FindAircraftRow(tailNumber)
+
+    If rowNumber = 0 Then
+        MsgBox "Aircraft " & tailNumber & " was not found on the Rotation sheet.", _
+               vbExclamation, _
+               "Aircraft Manager"
+        Exit Sub
+    End If
+
+    Dim planningMode As String
+    planningMode = Trim$(cmbPlanningMode.Value)
+
+    If Len(planningMode) = 0 Then
+        MsgBox "Please select a planning mode.", vbExclamation, "Aircraft Manager"
+        cmbPlanningMode.SetFocus
+        Exit Sub
+    End If
+
+    If Not ValidateAircraftManagerInput(planningMode) Then
+        Exit Sub
+    End If
+
+    If Not ConfirmAircraftManagerApply(tailNumber, planningMode) Then
+        Exit Sub
+    End If
+
+    Select Case planningMode
+
+        Case PLANNING_MODE_IN_CYCLE
+            If Not ApplyInCycleUpdate(rowNumber, tailNumber) Then Exit Sub
+
+        Case PLANNING_MODE_DOWN_MAINTENANCE
+            If Not ApplyDownMaintenanceUpdate(rowNumber, tailNumber) Then Exit Sub
+
+        Case Else
+            MsgBox "Planning mode is not recognised: " & planningMode, _
+                   vbExclamation, _
+                   "Aircraft Manager"
+            Exit Sub
+
+    End Select
+
+    LoadSelectedAircraftDetails
+    RefreshAll
+
+End Sub
+
+
+Private Sub cmdCancel_Click()
+
+    Unload Me
+
+End Sub
+
+Private Sub cmdAdd_Click()
+
+    Dim addedTail As String
+    addedTail = AddAircraftWizard()
+
+    If Len(addedTail) = 0 Then Exit Sub
+
+    LoadAircraftList
+
+    If SetComboToValue(cmbAircraft, addedTail) Then
+        LoadSelectedAircraftDetails
+    ElseIf cmbAircraft.ListCount > 0 Then
+        cmbAircraft.listIndex = 0
+    End If
+
+End Sub
+
+Private Sub cmdRemove_Click()
+
+    Dim tailNumber As String
+    tailNumber = Trim$(cmbAircraft.Value)
+
+    If Len(tailNumber) = 0 Then
+        MsgBox "Please select an aircraft to remove.", vbExclamation, "Aircraft Manager"
+        cmbAircraft.SetFocus
+        Exit Sub
+    End If
+
+    RemoveAircraft tailNumber
+
+    LoadAircraftList
+
+    If cmbAircraft.ListCount > 0 Then
+        cmbAircraft.listIndex = 0
+        LoadSelectedAircraftDetails
+    Else
+        ClearFormFields
+        UpdateFormState
+    End If
+
+End Sub
+
+Private Sub UpdateRosterSummary()
+
+    Dim aircraftCount As Long
+    aircraftCount = cmbAircraft.ListCount
+
+    Dim maxSlots As Long
+    maxSlots = GetNamedLong("MaxAircraftSlots")
+
+    On Error Resume Next
+
+    If aircraftCount = 0 Then
+        lblRosterSummary.Caption = "No aircraft in roster. Click Add to create one."
+    Else
+        lblRosterSummary.Caption = aircraftCount & " of " & maxSlots & " roster slots in use."
+    End If
+
+    On Error GoTo 0
+
+End Sub
+
+Private Sub UpdateFormState()
+
+    Dim hasSelection As Boolean
+    hasSelection = (cmbAircraft.ListCount > 0 And Len(Trim$(cmbAircraft.Value)) > 0)
+
+    cmbPlanningMode.Enabled = hasSelection
+    txtEffectiveFrom.Enabled = hasSelection
+    cmbNewCycleWeek.Enabled = hasSelection
+    txtDownStartDate.Enabled = hasSelection
+    txtExpectedReturnDate.Enabled = hasSelection
+    cmbCycleWeekOnReturn.Enabled = hasSelection
+    txtRemarks.Enabled = hasSelection
+
+    cmdApply.Enabled = hasSelection
+
+    If ManagementButtonsAvailable() Then
+        cmdRemove.Enabled = hasSelection
+        cmdAdd.Enabled = (cmbAircraft.ListCount < GetNamedLong("MaxAircraftSlots"))
+    End If
+
+    UpdateRosterSummary
+    UpdateAircraftManagerVisibility
+
+End Sub
+
+Private Sub LoadAircraftList()
+
+    Dim ws As Worksheet
+    Set ws = GetRotationSheet()
+
+    cmbAircraft.Clear
+
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, COL_TAIL_NUMBER).End(xlUp).Row
+
+    Dim rowNumber As Long
+    Dim tailNumber As String
+
+    For rowNumber = FIRST_AIRCRAFT_ROW To lastRow
+
+        tailNumber = Trim$(CStr(ws.Cells(rowNumber, COL_TAIL_NUMBER).Value))
+
+        If Len(tailNumber) > 0 Then
+            cmbAircraft.AddItem tailNumber
+        End If
+
+    Next rowNumber
+
+    UpdateFormState
+
+End Sub
+
+Private Sub LoadPlanningModeList()
+
+    cmbPlanningMode.Clear
+    cmbPlanningMode.AddItem PLANNING_MODE_IN_CYCLE
+    cmbPlanningMode.AddItem PLANNING_MODE_DOWN_MAINTENANCE
+
+End Sub
+
+Private Sub LoadCycleWeekLists()
+
+    cmbNewCycleWeek.Clear
+    cmbCycleWeekOnReturn.Clear
+
+    Dim cycleLength As Long
+    cycleLength = GetCycleLength()
+
+    Dim cycleWeek As Long
+
+    For cycleWeek = 1 To cycleLength
+        cmbNewCycleWeek.AddItem CStr(cycleWeek)
+        cmbCycleWeekOnReturn.AddItem CStr(cycleWeek)
+    Next cycleWeek
+
+End Sub
+
+Private Sub LoadSelectedAircraftDetails()
+
+    Dim rowNumber As Long
+    rowNumber = FindAircraftRow(Trim$(cmbAircraft.Value))
+
+    If rowNumber = 0 Then
+        ClearFormFields
+        Exit Sub
+    End If
+
+    Dim ws As Worksheet
+    Set ws = GetRotationSheet()
+
+    ws.Calculate
+
+    cmbPlanningMode.Value = CStr(ws.Cells(rowNumber, COL_PLANNING_MODE).Value)
+
+    txtCurrentCycle.Value = CStr(ws.Cells(rowNumber, COL_CALCULATED_CYCLE_WEEK).Value)
+
+    If IsDate(ws.Cells(rowNumber, COL_CYCLE_REFERENCE_DATE).Value) Then
+        txtEffectiveFrom.Value = Format$(ws.Cells(rowNumber, COL_CYCLE_REFERENCE_DATE).Value, "dd/mm/yyyy")
+    Else
+        txtEffectiveFrom.Value = Format$(GetForecastStartDate(), "dd/mm/yyyy")
+    End If
+
+    If IsNumeric(ws.Cells(rowNumber, COL_CYCLE_WEEK_AT_REFERENCE).Value) Then
+        cmbNewCycleWeek.Value = CStr(ws.Cells(rowNumber, COL_CYCLE_WEEK_AT_REFERENCE).Value)
+    ElseIf IsNumeric(ws.Cells(rowNumber, COL_CALCULATED_CYCLE_WEEK).Value) Then
+        cmbNewCycleWeek.Value = CStr(ws.Cells(rowNumber, COL_CALCULATED_CYCLE_WEEK).Value)
+    Else
+        cmbNewCycleWeek.Value = vbNullString
+    End If
+
+    If IsDate(ws.Cells(rowNumber, COL_DOWN_START_DATE).Value) Then
+        txtDownStartDate.Value = Format$(ws.Cells(rowNumber, COL_DOWN_START_DATE).Value, "dd/mm/yyyy")
+    Else
+        txtDownStartDate.Value = vbNullString
+    End If
+
+    If IsDate(ws.Cells(rowNumber, COL_EXPECTED_RETURN_DATE).Value) Then
+        txtExpectedReturnDate.Value = Format$(ws.Cells(rowNumber, COL_EXPECTED_RETURN_DATE).Value, "dd/mm/yyyy")
+    Else
+        txtExpectedReturnDate.Value = vbNullString
+    End If
+
+    If IsNumeric(ws.Cells(rowNumber, COL_CYCLE_WEEK_ON_RETURN).Value) Then
+        cmbCycleWeekOnReturn.Value = CStr(ws.Cells(rowNumber, COL_CYCLE_WEEK_ON_RETURN).Value)
+    Else
+        cmbCycleWeekOnReturn.Value = vbNullString
+    End If
+
+    txtRemarks.Value = CStr(ws.Cells(rowNumber, COL_REMARKS).Value)
+
+    UpdateFormState
+
+End Sub
+
+Private Function ApplyInCycleUpdate(ByVal rowNumber As Long, _
+                                    ByVal tailNumber As String) As Boolean
+
+    ApplyInCycleUpdate = False
+
+    Dim effectiveDate As Date
+
+    If Not TryGetDate(txtEffectiveFrom.Value, effectiveDate) Then
+        MsgBox "Please enter a valid Effective From date.", vbExclamation, "Aircraft Manager"
+        txtEffectiveFrom.SetFocus
+        Exit Function
+    End If
+
+    If Weekday(effectiveDate, vbMonday) <> 1 Then
+        MsgBox "Effective From must be a Monday.", vbExclamation, "Aircraft Manager"
+        txtEffectiveFrom.SetFocus
+        Exit Function
+    End If
+
+    If Len(Trim$(cmbNewCycleWeek.Value)) = 0 Then
+        MsgBox "Please select Cycle Week at Reference Date.", vbExclamation, "Aircraft Manager"
+        cmbNewCycleWeek.SetFocus
+        Exit Function
+    End If
+
+    Dim cycleWeekAtReference As Long
+    cycleWeekAtReference = CLng(cmbNewCycleWeek.Value)
+
+    If Not IsValidCycleWeek(cycleWeekAtReference) Then
+        MsgBox "Cycle week must be between 1 and " & GetCycleLength() & ".", _
+               vbExclamation, _
+               "Aircraft Manager"
+        Exit Function
+    End If
+
+    Dim ws As Worksheet
+    Set ws = GetRotationSheet()
+
+    ws.Cells(rowNumber, COL_PLANNING_MODE).Value = PLANNING_MODE_IN_CYCLE
+
+    ws.Cells(rowNumber, COL_CYCLE_REFERENCE_DATE).Value = effectiveDate
+    ws.Cells(rowNumber, COL_CYCLE_REFERENCE_DATE).NumberFormat = "dd mmm yyyy"
+
+    ws.Cells(rowNumber, COL_CYCLE_WEEK_AT_REFERENCE).Value = cycleWeekAtReference
+
+    ' Clear down-maintenance fields because the aircraft is now in cycle.
+    ws.Cells(rowNumber, COL_DOWN_START_DATE).ClearContents
+    ws.Cells(rowNumber, COL_EXPECTED_RETURN_DATE).ClearContents
+    ws.Cells(rowNumber, COL_CYCLE_WEEK_ON_RETURN).ClearContents
+    ws.Cells(rowNumber, COL_REMARKS).ClearContents
+
+    ws.Calculate
+
+    ApplyInCycleUpdate = True
+
+End Function
+
+Private Function ApplyDownMaintenanceUpdate(ByVal rowNumber As Long, _
+                                            ByVal tailNumber As String) As Boolean
+
+    ApplyDownMaintenanceUpdate = False
+
+    Dim downStartDate As Date
+
+    If Not TryGetDate(txtDownStartDate.Value, downStartDate) Then
+        MsgBox "Please enter a valid Down Start Date.", vbExclamation, "Aircraft Manager"
+        txtDownStartDate.SetFocus
+        Exit Function
+    End If
+
+    Dim expectedReturnDate As Date
+
+    If Not TryGetDate(txtExpectedReturnDate.Value, expectedReturnDate) Then
+        MsgBox "Please enter a valid Expected Return Date.", vbExclamation, "Aircraft Manager"
+        txtExpectedReturnDate.SetFocus
+        Exit Function
+    End If
+
+    If expectedReturnDate < downStartDate Then
+        MsgBox "Expected Return Date cannot be before Down Start Date.", _
+               vbExclamation, _
+               "Aircraft Manager"
+        txtExpectedReturnDate.SetFocus
+        Exit Function
+    End If
+
+    If Len(Trim$(cmbCycleWeekOnReturn.Value)) = 0 Then
+        MsgBox "Please select Cycle Week on Return.", vbExclamation, "Aircraft Manager"
+        cmbCycleWeekOnReturn.SetFocus
+        Exit Function
+    End If
+
+    Dim cycleWeekOnReturn As Long
+    cycleWeekOnReturn = CLng(cmbCycleWeekOnReturn.Value)
+
+    If Not IsValidCycleWeek(cycleWeekOnReturn) Then
+        MsgBox "Cycle Week on Return must be between 1 and " & GetCycleLength() & ".", _
+               vbExclamation, _
+               "Aircraft Manager"
+        Exit Function
+    End If
+
+    Dim ws As Worksheet
+    Set ws = GetRotationSheet()
+
+    ws.Cells(rowNumber, COL_PLANNING_MODE).Value = PLANNING_MODE_DOWN_MAINTENANCE
+
+    ws.Cells(rowNumber, COL_DOWN_START_DATE).Value = downStartDate
+    ws.Cells(rowNumber, COL_DOWN_START_DATE).NumberFormat = "dd mmm yyyy"
+
+    ws.Cells(rowNumber, COL_EXPECTED_RETURN_DATE).Value = expectedReturnDate
+    ws.Cells(rowNumber, COL_EXPECTED_RETURN_DATE).NumberFormat = "dd mmm yyyy"
+
+    ws.Cells(rowNumber, COL_CYCLE_WEEK_ON_RETURN).Value = cycleWeekOnReturn
+
+    ws.Cells(rowNumber, COL_REMARKS).Value = txtRemarks.Value
+
+    ' Leave cycle reference fields unchanged.
+    ' Down Maintenance logic uses Cycle Week on Return.
+    ws.Calculate
+
+    ApplyDownMaintenanceUpdate = True
+
+End Function
+
+
+Private Sub UpdateAircraftManagerVisibility()
+
+    Dim hasSelection As Boolean
+    hasSelection = (cmbAircraft.ListCount > 0 And Len(Trim$(cmbAircraft.Value)) > 0)
+
+    Dim isDownMaintenance As Boolean
+    isDownMaintenance = hasSelection And _
+        (StrComp(Trim$(cmbPlanningMode.Value), PLANNING_MODE_DOWN_MAINTENANCE, vbTextCompare) = 0)
+
+    On Error Resume Next
+
+    ' lblPlanningPlaceholder.Visible = Not hasSelection
+
+    ' lblPlanningSection.Visible = hasSelection
+    lblPlanningMode.Visible = hasSelection
+    cmbPlanningMode.Visible = hasSelection
+    lblCurrentCycle.Visible = hasSelection
+    txtCurrentCycle.Visible = hasSelection
+
+    lblEffectiveFrom.Visible = hasSelection And Not isDownMaintenance
+    txtEffectiveFrom.Visible = hasSelection And Not isDownMaintenance
+    lblCycleWeekAtReferenceDate.Visible = hasSelection And Not isDownMaintenance
+    cmbNewCycleWeek.Visible = hasSelection And Not isDownMaintenance
+
+    lblDownStartDate.Visible = hasSelection And isDownMaintenance
+    txtDownStartDate.Visible = hasSelection And isDownMaintenance
+    lblExpectedReturnDate.Visible = hasSelection And isDownMaintenance
+    txtExpectedReturnDate.Visible = hasSelection And isDownMaintenance
+    lblCycleWeekOnReturn.Visible = hasSelection And isDownMaintenance
+    cmbCycleWeekOnReturn.Visible = hasSelection And isDownMaintenance
+    lblRemarks.Visible = hasSelection And isDownMaintenance
+    txtRemarks.Visible = hasSelection And isDownMaintenance
+
+    On Error GoTo 0
+
+End Sub
+
+Private Sub ClearFormFields()
+
+    cmbPlanningMode.Value = vbNullString
+    txtCurrentCycle.Value = vbNullString
+    txtEffectiveFrom.Value = Format$(GetForecastStartDate(), "dd/mm/yyyy")
+    cmbNewCycleWeek.Value = vbNullString
+    txtDownStartDate.Value = vbNullString
+    txtExpectedReturnDate.Value = vbNullString
+    cmbCycleWeekOnReturn.Value = vbNullString
+    txtRemarks.Value = vbNullString
+
+End Sub
+
+Private Function FindAircraftRow(ByVal tailNumber As String) As Long
+
+    Dim ws As Worksheet
+    Set ws = GetRotationSheet()
+
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, COL_TAIL_NUMBER).End(xlUp).Row
+
+    Dim rowNumber As Long
+
+    For rowNumber = FIRST_AIRCRAFT_ROW To lastRow
+
+        If StrComp(Trim$(CStr(ws.Cells(rowNumber, COL_TAIL_NUMBER).Value)), _
+                   tailNumber, _
+                   vbTextCompare) = 0 Then
+
+            FindAircraftRow = rowNumber
+            Exit Function
+
+        End If
+
+    Next rowNumber
+
+    FindAircraftRow = 0
+
+End Function
+
+Private Function GetRotationSheet() As Worksheet
+
+    Set GetRotationSheet = ThisWorkbook.Worksheets(ROTATION_SHEET_NAME)
+
+End Function
+
+Private Function GetForecastStartDate() As Date
+
+    GetForecastStartDate = CDate(ThisWorkbook.Names("ForecastStart").RefersToRange.Value)
+
+End Function
+
+Private Function GetCycleLength() As Long
+
+    GetCycleLength = CLng(ThisWorkbook.Names("CycleLength").RefersToRange.Value)
+
+End Function
+
+Private Function IsValidCycleWeek(ByVal cycleWeek As Long) As Boolean
+
+    IsValidCycleWeek = (cycleWeek >= 1 And cycleWeek <= GetCycleLength())
+
+End Function
+
+Private Function ManagementButtonsAvailable() As Boolean
+
+    On Error Resume Next
+
+    Dim testControl As Object
+    Set testControl = Me.cmdAdd
+    If Err.Number <> 0 Then
+        Err.Clear
+        ManagementButtonsAvailable = False
+        Exit Function
+    End If
+
+    Set testControl = Me.cmdRemove
+    ManagementButtonsAvailable = (Err.Number = 0)
+
+    Err.Clear
+    On Error GoTo 0
+
+End Function
+
+Private Function SetComboToValue(ByVal comboBox As Object, ByVal targetValue As String) As Boolean
+
+    Dim listIndex As Long
+
+    For listIndex = 0 To comboBox.ListCount - 1
+
+        If StrComp(CStr(comboBox.List(listIndex)), targetValue, vbTextCompare) = 0 Then
+            comboBox.listIndex = listIndex
+            SetComboToValue = True
+            Exit Function
+        End If
+
+    Next listIndex
+
+    SetComboToValue = False
+
+End Function
+
+Private Function ConfirmAircraftManagerApply(ByVal tailNumber As String, _
+                                             ByVal planningMode As String) As Boolean
+
+    Dim messageText As String
+
+    messageText = "Save planning changes for " & tailNumber & "?" & vbCrLf & vbCrLf & _
+                  "Planning mode: " & planningMode & vbCrLf & vbCrLf & _
+                  "Charts and the dashboard will refresh. The form will stay open so you can edit other aircraft."
+
+    ConfirmAircraftManagerApply = _
+        (MsgBox(messageText, vbQuestion + vbYesNo, "Confirm Aircraft Update") = vbYes)
+
+End Function
+
+Private Function ValidateAircraftManagerInput(ByVal planningMode As String) As Boolean
+
+    ValidateAircraftManagerInput = False
+
+    Select Case planningMode
+
+        Case PLANNING_MODE_IN_CYCLE
+
+            Dim effectiveDate As Date
+
+            If Not TryGetDate(txtEffectiveFrom.Value, effectiveDate) Then
+                MsgBox "Please enter a valid Effective From date.", vbExclamation, "Aircraft Manager"
+                txtEffectiveFrom.SetFocus
+                Exit Function
+            End If
+
+            If Weekday(effectiveDate, vbMonday) <> 1 Then
+                MsgBox "Effective From must be a Monday.", vbExclamation, "Aircraft Manager"
+                txtEffectiveFrom.SetFocus
+                Exit Function
+            End If
+
+            If Len(Trim$(cmbNewCycleWeek.Value)) = 0 Then
+                MsgBox "Please select Cycle Week at Reference Date.", vbExclamation, "Aircraft Manager"
+                cmbNewCycleWeek.SetFocus
+                Exit Function
+            End If
+
+            If Not IsValidCycleWeek(CLng(cmbNewCycleWeek.Value)) Then
+                MsgBox "Cycle week must be between 1 and " & GetCycleLength() & ".", _
+                       vbExclamation, _
+                       "Aircraft Manager"
+                cmbNewCycleWeek.SetFocus
+                Exit Function
+            End If
+
+        Case PLANNING_MODE_DOWN_MAINTENANCE
+
+            Dim downStartDate As Date
+            Dim expectedReturnDate As Date
+
+            If Not TryGetDate(txtDownStartDate.Value, downStartDate) Then
+                MsgBox "Please enter a valid Down Start Date.", vbExclamation, "Aircraft Manager"
+                txtDownStartDate.SetFocus
+                Exit Function
+            End If
+
+            If Not TryGetDate(txtExpectedReturnDate.Value, expectedReturnDate) Then
+                MsgBox "Please enter a valid Expected Return Date.", vbExclamation, "Aircraft Manager"
+                txtExpectedReturnDate.SetFocus
+                Exit Function
+            End If
+
+            If expectedReturnDate < downStartDate Then
+                MsgBox "Expected Return Date cannot be before Down Start Date.", _
+                       vbExclamation, _
+                       "Aircraft Manager"
+                txtExpectedReturnDate.SetFocus
+                Exit Function
+            End If
+
+            If Len(Trim$(cmbCycleWeekOnReturn.Value)) = 0 Then
+                MsgBox "Please select Cycle Week on Return.", vbExclamation, "Aircraft Manager"
+                cmbCycleWeekOnReturn.SetFocus
+                Exit Function
+            End If
+
+            If Not IsValidCycleWeek(CLng(cmbCycleWeekOnReturn.Value)) Then
+                MsgBox "Cycle Week on Return must be between 1 and " & GetCycleLength() & ".", _
+                       vbExclamation, _
+                       "Aircraft Manager"
+                cmbCycleWeekOnReturn.SetFocus
+                Exit Function
+            End If
+
+        Case Else
+
+            MsgBox "Planning mode is not recognised: " & planningMode, _
+                   vbExclamation, _
+                   "Aircraft Manager"
+            Exit Function
+
+    End Select
+
+    ValidateAircraftManagerInput = True
+
+End Function
+

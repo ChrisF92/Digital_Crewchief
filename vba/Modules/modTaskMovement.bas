@@ -1,0 +1,322 @@
+Attribute VB_Name = "modTaskMovement"
+Option Explicit
+
+'------------------------------------------------------------------------------
+' Module : modTaskMovement
+' Purpose : Calculates whether a task occurrence should be automatically
+' pulled into a previous maintenance window or pushed into the next
+' maintenance window.
+'------------------------------------------------------------------------------
+
+Public Type TaskMovementResult
+    finalWeek As Date
+    WasPulled As Boolean
+    WasPushed As Boolean
+    pullPercentUsed As Double
+    extensionPercentUsed As Double
+End Type
+
+
+'------------------------------------------------------------------------------
+' Purpose : Applies automatic pull/push rules to one task occurrence.
+' Input : originalWeek - week where the task is naturally due.
+' dueWeekIndex - display week index of originalWeek.
+' occurrenceNumber - zero-based occurrence counter.
+' isHourBased - True for HH/E1/E2 tasks.
+' intervalValue - task interval value.
+' intervalType - normalised interval type.
+' weekStartDates - visible planner week starts.
+' weekCyclePosition - aircraft weekly cycle positions.
+' weekHHRates/E1/E2Rates - aircraft weekly flying rates.
+' settings - validated planner settings.
+' existingExtensionPercent - extension already used on first occurrence.
+' noPullTask - True when task must not be pulled.
+' noExtendTask - True when task must not be extended.
+' Output : TaskMovementResult.
+'------------------------------------------------------------------------------
+Public Function CalculateTaskMovement(ByVal originalWeek As Date, _
+                                      ByVal dueWeekIndex As Long, _
+                                      ByVal occurrenceNumber As Long, _
+                                      ByVal isHourBased As Boolean, _
+                                      ByVal intervalValue As Double, _
+                                      ByVal intervalType As String, _
+                                      ByRef weekStartDates() As Date, _
+                                      ByRef weekCyclePosition() As Long, _
+                                      ByRef weekHHRates() As Double, _
+                                      ByRef weekE1Rates() As Double, _
+                                      ByRef weekE2Rates() As Double, _
+                                      ByRef settings As PlannerSettings, _
+                                      ByVal existingExtensionPercent As Double, _
+                                      ByVal noPullTask As Boolean, _
+                                      ByVal noExtendTask As Boolean) As TaskMovementResult
+
+    Dim movement As TaskMovementResult
+    movement.finalWeek = originalWeek
+
+    If Not IsDisplayWeekIndexValid(dueWeekIndex, settings.displayWeeksShown) Then
+        CalculateTaskMovement = movement
+        Exit Function
+    End If
+
+    ' Only tasks naturally due in flying weeks are moved into maintenance.
+    If weekCyclePosition(dueWeekIndex) > settings.flyingWeeks Then
+        CalculateTaskMovement = movement
+        Exit Function
+    End If
+
+    If settings.MaxPullForwardPercent > 0 And Not noPullTask Then
+        movement = TryPullTaskToPreviousMaintenance( _
+            movement, _
+            dueWeekIndex, _
+            isHourBased, _
+            intervalValue, _
+            intervalType, _
+            weekStartDates, _
+            weekCyclePosition, _
+            weekHHRates, _
+            weekE1Rates, _
+            weekE2Rates, _
+            settings)
+    End If
+
+    If Not movement.WasPulled And Not noExtendTask Then
+        movement = TryPushTaskToNextMaintenance( _
+            movement, _
+            dueWeekIndex, _
+            occurrenceNumber, _
+            isHourBased, _
+            intervalValue, _
+            intervalType, _
+            weekStartDates, _
+            weekCyclePosition, _
+            weekHHRates, _
+            weekE1Rates, _
+            weekE2Rates, _
+            settings, _
+            existingExtensionPercent)
+    End If
+
+    CalculateTaskMovement = movement
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Attempts to pull a task into the previous maintenance week.
+'------------------------------------------------------------------------------
+Private Function TryPullTaskToPreviousMaintenance(ByRef movement As TaskMovementResult, _
+                                                  ByVal dueWeekIndex As Long, _
+                                                  ByVal isHourBased As Boolean, _
+                                                  ByVal intervalValue As Double, _
+                                                  ByVal intervalType As String, _
+                                                  ByRef weekStartDates() As Date, _
+                                                  ByRef weekCyclePosition() As Long, _
+                                                  ByRef weekHHRates() As Double, _
+                                                  ByRef weekE1Rates() As Double, _
+                                                  ByRef weekE2Rates() As Double, _
+                                                  ByRef settings As PlannerSettings) As TaskMovementResult
+
+    Dim previousMaintenanceIndex As Long
+
+    previousMaintenanceIndex = FindPreviousMaintenanceWeek( _
+        dueWeekIndex, _
+        weekCyclePosition, _
+        settings.flyingWeeks)
+
+    If previousMaintenanceIndex = 0 Then
+        TryPullTaskToPreviousMaintenance = movement
+        Exit Function
+    End If
+
+    Dim pullRequired As Double
+
+    If isHourBased Then
+        pullRequired = SumFlyingRateBetweenWeeks( _
+            previousMaintenanceIndex, _
+            dueWeekIndex - 1, _
+            intervalType, _
+            weekHHRates, _
+            weekE1Rates, _
+            weekE2Rates)
+    Else
+        pullRequired = (dueWeekIndex - previousMaintenanceIndex) * 7
+    End If
+
+    If intervalValue > 0 Then
+        movement.pullPercentUsed = pullRequired / intervalValue
+    Else
+        movement.pullPercentUsed = 1
+    End If
+
+    If movement.pullPercentUsed <= settings.MaxPullForwardPercent Then
+        movement.finalWeek = weekStartDates(previousMaintenanceIndex)
+        movement.WasPulled = True
+    End If
+
+    TryPullTaskToPreviousMaintenance = movement
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Attempts to push a task into the next maintenance week.
+'------------------------------------------------------------------------------
+Private Function TryPushTaskToNextMaintenance(ByRef movement As TaskMovementResult, _
+                                              ByVal dueWeekIndex As Long, _
+                                              ByVal occurrenceNumber As Long, _
+                                              ByVal isHourBased As Boolean, _
+                                              ByVal intervalValue As Double, _
+                                              ByVal intervalType As String, _
+                                              ByRef weekStartDates() As Date, _
+                                              ByRef weekCyclePosition() As Long, _
+                                              ByRef weekHHRates() As Double, _
+                                              ByRef weekE1Rates() As Double, _
+                                              ByRef weekE2Rates() As Double, _
+                                              ByRef settings As PlannerSettings, _
+                                              ByVal existingExtensionPercent As Double) As TaskMovementResult
+
+
+    Dim nextMaintenanceIndex As Long
+
+    nextMaintenanceIndex = FindNextMaintenanceWeek( _
+        dueWeekIndex, _
+        settings.displayWeeksShown, _
+        weekCyclePosition, _
+        settings.flyingWeeks)
+
+    If nextMaintenanceIndex = 0 Then
+        TryPushTaskToNextMaintenance = movement
+        Exit Function
+    End If
+
+    Dim extensionRequired As Double
+
+    If isHourBased Then
+        extensionRequired = SumFlyingRateBetweenWeeks( _
+            dueWeekIndex, _
+            nextMaintenanceIndex - 1, _
+            intervalType, _
+            weekHHRates, _
+            weekE1Rates, _
+            weekE2Rates)
+    Else
+        extensionRequired = (nextMaintenanceIndex - dueWeekIndex) * 7
+    End If
+
+    If intervalValue > 0 Then
+        movement.extensionPercentUsed = extensionRequired / intervalValue
+    Else
+        movement.extensionPercentUsed = 1
+    End If
+
+    Dim extensionAlreadyUsed As Double
+
+    If occurrenceNumber = 0 Then
+        extensionAlreadyUsed = existingExtensionPercent
+    Else
+        extensionAlreadyUsed = 0
+    End If
+
+    Dim remainingExtensionAllowed As Double
+    remainingExtensionAllowed = settings.MaxExtensionPercent - extensionAlreadyUsed
+
+    If remainingExtensionAllowed < 0 Then
+        remainingExtensionAllowed = 0
+    End If
+
+    If movement.extensionPercentUsed <= remainingExtensionAllowed Then
+        movement.finalWeek = weekStartDates(nextMaintenanceIndex)
+        movement.WasPushed = True
+    End If
+
+    TryPushTaskToNextMaintenance = movement
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Finds the nearest previous maintenance week before a due week.
+'------------------------------------------------------------------------------
+Private Function FindPreviousMaintenanceWeek(ByVal dueWeekIndex As Long, _
+                                             ByRef weekCyclePosition() As Long, _
+                                             ByVal flyingWeeks As Long) As Long
+
+    Dim weekIndex As Long
+
+    For weekIndex = dueWeekIndex - 1 To 1 Step -1
+
+        If weekCyclePosition(weekIndex) > flyingWeeks Then
+            FindPreviousMaintenanceWeek = weekIndex
+            Exit Function
+        End If
+
+    Next weekIndex
+
+    FindPreviousMaintenanceWeek = 0
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Finds the nearest next maintenance week after a due week.
+'------------------------------------------------------------------------------
+Private Function FindNextMaintenanceWeek(ByVal dueWeekIndex As Long, _
+                                         ByVal displayWeeksShown As Long, _
+                                         ByRef weekCyclePosition() As Long, _
+                                         ByVal flyingWeeks As Long) As Long
+
+    Dim weekIndex As Long
+
+    For weekIndex = dueWeekIndex + 1 To displayWeeksShown
+
+        If weekCyclePosition(weekIndex) > flyingWeeks Then
+            FindNextMaintenanceWeek = weekIndex
+            Exit Function
+        End If
+
+    Next weekIndex
+
+    FindNextMaintenanceWeek = 0
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Sums the relevant flying rate between two display week indexes.
+'------------------------------------------------------------------------------
+Private Function SumFlyingRateBetweenWeeks(ByVal startWeekIndex As Long, _
+                                           ByVal endWeekIndex As Long, _
+                                           ByVal intervalType As String, _
+                                           ByRef weekHHRates() As Double, _
+                                           ByRef weekE1Rates() As Double, _
+                                           ByRef weekE2Rates() As Double) As Double
+
+    If endWeekIndex < startWeekIndex Then
+        SumFlyingRateBetweenWeeks = 0
+        Exit Function
+    End If
+
+    Dim weekIndex As Long
+
+    For weekIndex = startWeekIndex To endWeekIndex
+
+        If weekIndex < LBound(weekHHRates) Or weekIndex > UBound(weekHHRates) Then Exit For
+
+        Select Case UCase$(Trim$(intervalType))
+
+            Case "HH"
+                SumFlyingRateBetweenWeeks = SumFlyingRateBetweenWeeks + weekHHRates(weekIndex)
+
+            Case "E1"
+                SumFlyingRateBetweenWeeks = SumFlyingRateBetweenWeeks + weekE1Rates(weekIndex)
+
+            Case "E2"
+                SumFlyingRateBetweenWeeks = SumFlyingRateBetweenWeeks + weekE2Rates(weekIndex)
+
+        End Select
+
+    Next weekIndex
+
+End Function
+
+

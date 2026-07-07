@@ -1,0 +1,160 @@
+Attribute VB_Name = "modTaskOccurences"
+Option Explicit
+
+'------------------------------------------------------------------------------
+' Module : modTaskOccurences
+' Purpose : Defines and manages task occurrences created during planner refresh.
+' Notes : Module file name retains the historical Occurences spelling.
+'------------------------------------------------------------------------------
+
+Public Const INITIAL_TASK_OCCURRENCE_CAPACITY As Long = 50000
+Private Const TASK_OCCURRENCE_CAPACITY_INCREMENT As Long = 10000
+
+
+'------------------------------------------------------------------------------
+' Type : TaskOccurrence
+' Purpose : Represents one visible occurrence of a maintenance task.
+'------------------------------------------------------------------------------
+Public Type TaskOccurrence
+
+    intervalType As String
+    intervalValue As Double
+
+    scheduledWeek As Date
+    originalWeek As Date
+    firstDueDate As Date
+
+    taskCode As String
+    taskDescription As String
+    serialNumber As String
+    sequenceNumber As String
+
+    lifeRemaining As Double
+
+    GroupedDirection As Long
+
+    wasAutoPushed As Boolean
+    extensionPercentUsed As Double
+
+    wasAutoPulled As Boolean
+    pullPercentUsed As Double
+
+    isHighlighted As Boolean
+
+    existingExtensionPercent As Double
+    existingExtensionAmount As Double
+
+    isOverdueAtDisplayStart As Boolean
+
+End Type
+
+
+'------------------------------------------------------------------------------
+' Purpose : Creates the initial task occurrence array.
+' Output : 1-based TaskOccurrence array.
+'------------------------------------------------------------------------------
+Public Function CreateTaskOccurrenceArray() As TaskOccurrence()
+
+    Dim taskOccurrences() As TaskOccurrence
+    ReDim taskOccurrences(1 To INITIAL_TASK_OCCURRENCE_CAPACITY)
+
+    CreateTaskOccurrenceArray = taskOccurrences
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Ensures the occurrence array has enough room for a given index.
+' Input : taskOccurrences - occurrence array to resize if needed.
+' requiredIndex - index that must fit in the array.
+'------------------------------------------------------------------------------
+Public Sub EnsureTaskOccurrenceCapacity(ByRef taskOccurrences() As TaskOccurrence, _
+                                        ByVal requiredIndex As Long)
+
+    If requiredIndex <= UBound(taskOccurrences) Then Exit Sub
+
+    Dim newCapacity As Long
+    newCapacity = UBound(taskOccurrences)
+
+    Do While requiredIndex > newCapacity
+        newCapacity = newCapacity + TASK_OCCURRENCE_CAPACITY_INCREMENT
+    Loop
+
+    ReDim Preserve taskOccurrences(1 To newCapacity)
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds a TaskOccurrence record from the calculated task data.
+' Output : Populated TaskOccurrence.
+'------------------------------------------------------------------------------
+Public Function BuildTaskOccurrence(ByVal serialNumber As String, _
+                                    ByVal sequenceNumber As String, _
+                                    ByVal lifeRemaining As Double, _
+                                    ByVal intervalType As String, _
+                                    ByVal intervalValue As Double, _
+                                    ByVal scheduledWeek As Date, _
+                                    ByVal originalWeek As Date, _
+                                    ByVal firstDueDate As Date, _
+                                    ByVal wasAutoPushed As Boolean, _
+                                    ByVal extensionPercentUsed As Double, _
+                                    ByVal wasAutoPulled As Boolean, _
+                                    ByVal pullPercentUsed As Double, _
+                                    ByVal taskCode As String, _
+                                    ByVal taskDescription As String, _
+                                    ByVal isHighlighted As Boolean, _
+                                    ByVal existingExtensionPercent As Double, _
+                                    ByVal existingExtensionAmount As Double, _
+                                    ByVal isOverdueAtDisplayStart As Boolean) As TaskOccurrence
+
+    Dim occurrence As TaskOccurrence
+
+    occurrence.serialNumber = serialNumber
+    occurrence.sequenceNumber = sequenceNumber
+    occurrence.lifeRemaining = lifeRemaining
+
+    occurrence.intervalType = intervalType
+    occurrence.intervalValue = intervalValue
+
+    occurrence.scheduledWeek = scheduledWeek
+    occurrence.originalWeek = originalWeek
+    occurrence.firstDueDate = firstDueDate
+
+    occurrence.GroupedDirection = 0
+
+    occurrence.wasAutoPushed = wasAutoPushed
+    occurrence.extensionPercentUsed = extensionPercentUsed
+
+    occurrence.wasAutoPulled = wasAutoPulled
+    occurrence.pullPercentUsed = pullPercentUsed
+
+    occurrence.taskCode = taskCode
+    occurrence.taskDescription = taskDescription
+    occurrence.isHighlighted = isHighlighted
+
+    occurrence.existingExtensionPercent = existingExtensionPercent
+    occurrence.existingExtensionAmount = existingExtensionAmount
+
+    occurrence.isOverdueAtDisplayStart = isOverdueAtDisplayStart
+
+    BuildTaskOccurrence = occurrence
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns the unique task key used by dashboard de-duplication logic.
+' Input : occurrence - task occurrence.
+' Output : Key made from task code, serial number, and sequence number.
+'------------------------------------------------------------------------------
+Public Function GetTaskOccurrenceKey(ByRef occurrence As TaskOccurrence) As String
+
+    GetTaskOccurrenceKey = _
+        occurrence.taskCode & "|" & _
+        occurrence.serialNumber & "|" & _
+        occurrence.sequenceNumber
+
+End Function
+
+

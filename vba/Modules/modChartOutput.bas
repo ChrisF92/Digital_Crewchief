@@ -1,0 +1,129 @@
+Attribute VB_Name = "modChartOutput"
+Option Explicit
+
+'------------------------------------------------------------------------------
+' Module : modChartOutput
+' Purpose : Coordinates writing the full aircraft chart output.
+'------------------------------------------------------------------------------
+
+
+'------------------------------------------------------------------------------
+' Purpose : Populates one aircraft chart sheet.
+' Input : chartWs - aircraft chart worksheet.
+' tailNumber - aircraft tail number.
+' totalImported - count of imported task rows.
+' totalShown - count of visible/planner task rows.
+' settings - validated planner settings.
+' weekStartDates - visible planner week start dates.
+' weekCyclePositions - aircraft weekly cycle positions.
+' taskOccurrences - populated task occurrence records.
+' totalOccurrences - number of populated task occurrence records.
+' isDownMaintenance - True when aircraft is long-term down.
+' rtsFlyStart - first flying week after ETBOL/RTS.
+'------------------------------------------------------------------------------
+Public Sub PopulateAircraftChart(ByVal chartWs As Worksheet, _
+                                 ByVal tailNumber As String, _
+                                 ByVal totalImported As Long, _
+                                 ByVal totalShown As Long, _
+                                 ByRef settings As PlannerSettings, _
+                                 ByRef weekStartDates() As Date, _
+                                 ByRef weekCyclePositions() As Long, _
+                                 ByRef taskOccurrences() As TaskOccurrence, _
+                                 ByVal totalOccurrences As Long, _
+                                 ByVal isDownMaintenance As Boolean, _
+                                 ByVal rtsFlyStart As Date)
+
+    ClearAircraftChartOutput chartWs
+
+    WriteAircraftChartFixedHeaders _
+        chartWs, _
+        tailNumber, _
+        totalImported, _
+        totalShown
+
+    WriteAircraftChartWeekHeaders _
+        chartWs, _
+        settings, _
+        weekStartDates, _
+        weekCyclePositions, _
+        isDownMaintenance, _
+        rtsFlyStart
+
+    Dim chartTaskRows() As chartTaskRow
+    chartTaskRows = BuildChartTaskRows(taskOccurrences, totalOccurrences)
+
+    Dim chartTaskRowCount As Long
+    chartTaskRowCount = GetChartTaskRowCount(chartTaskRows, totalOccurrences)
+
+    Dim rowLookup As Object
+    Set rowLookup = WriteChartTaskRows( _
+        chartWs, _
+        chartTaskRows, _
+        chartTaskRowCount)
+
+    Dim columnLookup As Object
+    Set columnLookup = BuildChartColumnLookup( _
+        weekStartDates, _
+        settings.displayWeeksShown)
+
+    Dim chartAggregation As ChartCellAggregation
+
+    chartAggregation = BuildChartCellAggregation( _
+        taskOccurrences, _
+        totalOccurrences, _
+        rowLookup, _
+        columnLookup, _
+        settings, _
+        settings.displayStart, _
+        weekCyclePositions)
+
+    WriteChartCellAggregation _
+        chartWs, _
+        chartAggregation
+
+    MergeChartMaintenanceCells _
+        chartWs, _
+        chartTaskRowCount, _
+        settings, _
+        weekCyclePositions, _
+        chartAggregation
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns the number of populated chart task rows.
+'------------------------------------------------------------------------------
+Private Function GetChartTaskRowCount(ByRef chartTaskRows() As chartTaskRow, _
+                                      ByVal totalOccurrences As Long) As Long
+
+    If totalOccurrences <= 0 Then
+        GetChartTaskRowCount = 0
+    Else
+        GetChartTaskRowCount = UBound(chartTaskRows)
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds a lookup from week start date to chart worksheet column.
+' Output : Dictionary where key = CLng(weekStartDate), value = chart column.
+'------------------------------------------------------------------------------
+Private Function BuildChartColumnLookup(ByRef weekStartDates() As Date, _
+                                        ByVal displayWeeksShown As Long) As Object
+
+    Dim columnLookup As Object
+    Set columnLookup = CreateObject("Scripting.Dictionary")
+
+    Dim weekIndex As Long
+
+    For weekIndex = 1 To displayWeeksShown
+        columnLookup(CLng(weekStartDates(weekIndex))) = weekIndex + 3
+    Next weekIndex
+
+    Set BuildChartColumnLookup = columnLookup
+
+End Function
+
+

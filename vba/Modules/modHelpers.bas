@@ -1,0 +1,209 @@
+Attribute VB_Name = "modHelpers"
+Option Explicit
+
+'------------------------------------------------------------------------------
+' Module : modHelpers
+' Purpose : Shared formatting, colour, comment, duration, and worksheet helper functions.
+'------------------------------------------------------------------------------
+
+'------------------------------------------------------------------------------
+' Purpose : Returns the display colour assigned to a normalised interval type.
+' Input : normType - interval type such as HH, E1, E2, or DD.
+' Output : Long RGB colour constant for the interval type.
+'------------------------------------------------------------------------------
+Public Function TypeColour(normType As String) As Long
+    Select Case normType
+        Case "HH": TypeColour = CLR_HH
+        Case "E1": TypeColour = CLR_E1
+        Case "E2": TypeColour = CLR_E2
+        Case "DD": TypeColour = CLR_DD
+        Case Else: TypeColour = CLR_OTHER
+    End Select
+End Function
+
+'------------------------------------------------------------------------------
+' Purpose : Truncates task description text to a maximum display length.
+' Input : s - source description text.
+' maxLen - maximum permitted length.
+' Output : Original or shortened text with ellipsis if truncated.
+'------------------------------------------------------------------------------
+Public Function TruncateDesc(s As String, Optional maxLen As Long = MAX_DESC_LEN) As String
+    If Len(s) > maxLen Then
+        TruncateDesc = Left(s, maxLen - 1) & "..."
+    Else
+        TruncateDesc = s
+    End If
+End Function
+
+'------------------------------------------------------------------------------
+' Purpose : Places a tag on a new indented line for comment display.
+' Input : tag - tag text to append.
+' colWidth - retained for compatibility; currently not used in calculation.
+' Output : Tag prefixed with a line break and indentation.
+'------------------------------------------------------------------------------
+Public Function RightAlignTag(tag As String, Optional colWidth As Long = COMMENT_COL_WIDTH) As String
+    RightAlignTag = Chr(10) & "    " & tag
+End Function
+
+'------------------------------------------------------------------------------
+' Purpose : Caps comment text to a maximum length and appends a truncation notice.
+' Input : s - source comment text.
+' maxLen - maximum permitted comment length.
+' Output : Original or shortened comment text.
+'------------------------------------------------------------------------------
+Public Function CapCommentLength(s As String, Optional maxLen As Long = MAX_COMMENT_LEN) As String
+    If Len(s) <= maxLen Then
+        CapCommentLength = s
+    Else
+        Dim truncMsg As String
+        truncMsg = Chr(10) & "... [comment truncated]"
+        CapCommentLength = Left(s, maxLen - Len(truncMsg)) & truncMsg
+    End If
+End Function
+
+'------------------------------------------------------------------------------
+' Purpose : Safely replaces a cell comment and sizes the comment box.
+' Input : targetCell - cell or merged cell area receiving the comment.
+' commentText - comment text to add.
+' Output : Existing comment is replaced with the supplied text.
+'------------------------------------------------------------------------------
+Public Sub SafeAddComment(targetCell As Range, commentText As String)
+    Dim commentCell As Range
+
+    If Len(Trim(commentText)) = 0 Then Exit Sub
+
+    If targetCell.MergeCells Then
+        Set commentCell = targetCell.MergeArea.Cells(1, 1)
+    Else
+        Set commentCell = targetCell
+    End If
+
+    On Error Resume Next
+    If Not commentCell.Comment Is Nothing Then
+        commentCell.Comment.Delete
+    End If
+    On Error GoTo 0
+
+    commentCell.AddComment commentText
+
+    If Not commentCell.Comment Is Nothing Then
+        commentCell.Comment.Shape.Width = 700
+
+        Dim lineCount As Long
+        lineCount = Len(commentText) - Len(Replace(commentText, Chr(10), "")) + 1
+
+        commentCell.Comment.Shape.Height = Application.Max(30, 16 * lineCount)
+    End If
+End Sub
+
+'------------------------------------------------------------------------------
+' Purpose : Parses a duration value into decimal hours.
+' Input : rawVal - source value to parse.
+' sourceCell - source cell, used to inspect number format.
+' Output : Duration as decimal hours.
+'------------------------------------------------------------------------------
+Public Function ParseDurationValue(rawVal As Variant, sourceCell As Range) As Double
+
+    Dim s As String
+
+    If IsEmpty(rawVal) Or Len(Trim(CStr(rawVal))) = 0 Then
+        ParseDurationValue = 0
+        Exit Function
+    End If
+
+    If IsNumeric(rawVal) And Not IsDate(rawVal) Then
+
+        If InStr(1, sourceCell.NumberFormat, "h", vbTextCompare) > 0 Then
+            ParseDurationValue = CDbl(rawVal) * 24
+        Else
+            ParseDurationValue = CDbl(rawVal)
+        End If
+
+    ElseIf VarType(rawVal) = vbString Then
+
+        s = Trim(CStr(rawVal))
+
+        If InStr(s, ":") > 0 Then
+            ParseDurationValue = Val(Left(s, InStr(s, ":") - 1)) + _
+                                 Val(Mid(s, InStr(s, ":") + 1)) / 60
+        Else
+            ParseDurationValue = Val(s)
+        End If
+
+    Else
+
+        ParseDurationValue = CDbl(rawVal) * 24
+
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Formats decimal hours as H:MM text.
+' Input : decimalHours - hour value as a decimal.
+' Output : Text formatted as hours and minutes.
+'------------------------------------------------------------------------------
+Public Function FormatHoursToHMM(decimalHours As Double) As String
+    If decimalHours <= 0 Then
+        FormatHoursToHMM = "0:00"
+        Exit Function
+    End If
+    
+    Dim totalMinutes As Long
+    Dim hoursPart As Long
+    Dim minutesPart As Long
+    Const epsilon As Double = 0.000001
+    
+    totalMinutes = Int(decimalHours * 60 + epsilon)
+    hoursPart = totalMinutes \ 60
+    minutesPart = totalMinutes Mod 60
+    
+    FormatHoursToHMM = hoursPart & ":" & Format(minutesPart, "00")
+End Function
+
+'------------------------------------------------------------------------------
+' Purpose : Checks whether a worksheet exists in ThisWorkbook.
+' Input : sheetName - worksheet name to find.
+' Output : True if the worksheet exists, otherwise False.
+'------------------------------------------------------------------------------
+Public Function SheetExists(sheetName As String) As Boolean
+
+    Dim ws As Worksheet
+
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(sheetName)
+    On Error GoTo 0
+
+    SheetExists = Not ws Is Nothing
+
+End Function
+
+Public Function GetWeekMonday(ByVal forDate As Date) As Date
+
+    GetWeekMonday = DateValue(forDate - Weekday(forDate, vbMonday) + 1)
+
+End Function
+
+Public Function GetCurrentWeekMonday() As Date
+
+    GetCurrentWeekMonday = GetWeekMonday(Date)
+
+End Function
+
+Public Function FormatPercentOption(ByVal inputValue As Variant) As String
+
+    If Not IsNumeric(inputValue) Then
+        FormatPercentOption = vbNullString
+        Exit Function
+    End If
+    
+    FormatPercentOption = CStr(CLng(CDbl(inputValue))) & "%"
+
+End Function
+
+Public Function PercentTextToNumber(ByVal percentText As String) As Long
+    
+    PercentTextToNumber = CLng(Replace(percentText, "%", vbNullString))
+    
+End Function

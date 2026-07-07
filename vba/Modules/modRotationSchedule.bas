@@ -1,0 +1,194 @@
+Attribute VB_Name = "modRotationSchedule"
+Option Explicit
+
+'------------------------------------------------------------------------------
+' Module : modRotationSchedule
+' Purpose : Builds weekly flying/maintenance rotation schedules for aircraft.
+'------------------------------------------------------------------------------
+
+Public Type AircraftRotationSchedule
+    weekCyclePositions() As Long
+    weekHHRates() As Double
+    weekE1Rates() As Double
+    weekE2Rates() As Double
+End Type
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds the visible rotation schedule for one aircraft.
+' Input : settings - validated planner settings.
+' plannerRates - flying rates for cycle flying weeks.
+' weekStartDates - visible planner week start dates.
+' cycleStart - aircraft cycle week at forecast start / ETBOL.
+' isDownMaintenance - True when aircraft is in long-term maintenance.
+' rtsFlyStart - first Monday after ETBOL, used for down aircraft.
+' Output : AircraftRotationSchedule containing weekly cycle positions and rates.
+'------------------------------------------------------------------------------
+Public Function BuildAircraftRotationSchedule(ByRef settings As PlannerSettings, _
+                                              ByRef plannerRates As plannerRates, _
+                                              ByRef weekStartDates() As Date, _
+                                              ByVal cycleStart As Long, _
+                                              ByVal isDownMaintenance As Boolean, _
+                                              ByVal rtsFlyStart As Date) As AircraftRotationSchedule
+
+    Dim schedule As AircraftRotationSchedule
+
+    ReDim schedule.weekCyclePositions(1 To settings.displayWeeksShown)
+    ReDim schedule.weekHHRates(1 To settings.displayWeeksShown)
+    ReDim schedule.weekE1Rates(1 To settings.displayWeeksShown)
+    ReDim schedule.weekE2Rates(1 To settings.displayWeeksShown)
+
+    Dim weekIndex As Long
+
+    For weekIndex = 1 To settings.displayWeeksShown
+
+        Dim cyclePosition As Long
+
+        If isDownMaintenance Then
+
+            cyclePosition = GetDownMaintenanceCyclePosition( _
+                settings, _
+                weekStartDates(weekIndex), _
+                cycleStart, _
+                rtsFlyStart)
+
+        Else
+
+            cyclePosition = GetInCycleAircraftCyclePosition( _
+                settings, _
+                weekIndex, _
+                cycleStart)
+
+        End If
+
+        schedule.weekCyclePositions(weekIndex) = cyclePosition
+
+        ApplyFlyingRatesForCyclePosition _
+            schedule, _
+            plannerRates, _
+            settings, _
+            weekIndex, _
+            cyclePosition
+
+    Next weekIndex
+
+    BuildAircraftRotationSchedule = schedule
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns the cycle position for a long-term down maintenance aircraft.
+' Input : settings - validated planner settings.
+' weekStartDate - visible week start date.
+' cycleStart - cycle position aircraft will enter after ETBOL.
+' rtsFlyStart - first Monday after ETBOL.
+' Output : Cycle position for this display week.
+'------------------------------------------------------------------------------
+Private Function GetDownMaintenanceCyclePosition(ByRef settings As PlannerSettings, _
+                                                 ByVal weekStartDate As Date, _
+                                                 ByVal cycleStart As Long, _
+                                                 ByVal rtsFlyStart As Date) As Long
+
+    If weekStartDate < rtsFlyStart Then
+
+        GetDownMaintenanceCyclePosition = settings.flyingWeeks + 1
+
+        If GetDownMaintenanceCyclePosition > settings.cycleLength Then
+            GetDownMaintenanceCyclePosition = settings.cycleLength
+        End If
+
+    Else
+
+        Dim weeksAfterReturnToService As Long
+        weeksAfterReturnToService = CLng((weekStartDate - rtsFlyStart) / 7)
+
+        GetDownMaintenanceCyclePosition = _
+            ((cycleStart - 1 + weeksAfterReturnToService) Mod settings.cycleLength) + 1
+
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns the cycle position for an aircraft that is following the
+' normal flying/maintenance cycle.
+' Input : settings - validated planner settings.
+' weekIndex - visible week index.
+' cycleStart - aircraft cycle week at forecast start.
+' Output : Cycle position for this display week.
+'------------------------------------------------------------------------------
+Private Function GetInCycleAircraftCyclePosition(ByRef settings As PlannerSettings, _
+                                                 ByVal weekIndex As Long, _
+                                                 ByVal cycleStart As Long) As Long
+
+    If weekIndex <= settings.WeeksBeforeForecastStart Then
+
+        GetInCycleAircraftCyclePosition = settings.flyingWeeks + 1
+
+        If GetInCycleAircraftCyclePosition > settings.cycleLength Then
+            GetInCycleAircraftCyclePosition = settings.cycleLength
+        End If
+
+    Else
+
+        Dim forecastWeekIndex As Long
+        forecastWeekIndex = weekIndex - settings.WeeksBeforeForecastStart
+
+        GetInCycleAircraftCyclePosition = _
+            ((cycleStart - 1 + (forecastWeekIndex - 1)) Mod settings.cycleLength) + 1
+
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Applies weekly flying rates when the cycle position is a flying week.
+' Input : schedule - schedule being populated.
+' plannerRates - configured flying rates.
+' settings - validated planner settings.
+' weekIndex - visible week index.
+' cyclePosition - cycle position for the week.
+'------------------------------------------------------------------------------
+Private Sub ApplyFlyingRatesForCyclePosition(ByRef schedule As AircraftRotationSchedule, _
+                                             ByRef plannerRates As plannerRates, _
+                                             ByRef settings As PlannerSettings, _
+                                             ByVal weekIndex As Long, _
+                                             ByVal cyclePosition As Long)
+
+    If cyclePosition <= settings.flyingWeeks Then
+
+        If cyclePosition >= 1 And cyclePosition <= 3 Then
+            schedule.weekHHRates(weekIndex) = plannerRates.HHRates(cyclePosition)
+            schedule.weekE1Rates(weekIndex) = plannerRates.E1Rates(cyclePosition)
+            schedule.weekE2Rates(weekIndex) = plannerRates.E2Rates(cyclePosition)
+        Else
+            ClearFlyingRates schedule, weekIndex
+        End If
+
+    Else
+
+        ClearFlyingRates schedule, weekIndex
+
+    End If
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Sets all flying rates to zero for one display week.
+' Input : schedule - schedule being populated.
+' weekIndex - visible week index.
+'------------------------------------------------------------------------------
+Private Sub ClearFlyingRates(ByRef schedule As AircraftRotationSchedule, _
+                             ByVal weekIndex As Long)
+
+    schedule.weekHHRates(weekIndex) = 0
+    schedule.weekE1Rates(weekIndex) = 0
+    schedule.weekE2Rates(weekIndex) = 0
+
+End Sub
+
+

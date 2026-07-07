@@ -1,0 +1,480 @@
+Attribute VB_Name = "modDashboardBuckets"
+Option Explicit
+
+'------------------------------------------------------------------------------
+' Module : modDashboardBuckets
+' Purpose : Creates and stores dashboard summary buckets.
+'
+' Why this exists:
+' RefreshAll builds several dashboard summaries for each aircraft:
+' - Due before maintenance
+' - Due in maintenance cycle
+' - Extensions required
+' - Pulled tasks
+' - Critical tasks
+'
+' Each bucket uses three dictionaries:
+' - Summary counts
+' - Detail text
+' - Task-code de-duplication keys
+'
+' This module groups those related dictionaries together so RefreshAll is
+' easier to read.
+'------------------------------------------------------------------------------
+
+Public Type DashboardSummaryBucket
+    Summary As Object
+    Details As Object
+    TaskKeys As Object
+End Type
+
+Public Type DashboardSummaryBuckets
+    DueThisCycle As DashboardSummaryBucket
+    DueNextCycle As DashboardSummaryBucket
+    DueNextMaintenanceCycle As DashboardSummaryBucket
+    ExtensionsRequired As DashboardSummaryBucket
+    PulledTasks As DashboardSummaryBucket
+    CriticalTasks As DashboardSummaryBucket
+End Type
+
+
+'------------------------------------------------------------------------------
+' Purpose : Creates all dashboard summary buckets for one aircraft refresh.
+' Output : DashboardSummaryBuckets with all dictionaries initialised.
+'------------------------------------------------------------------------------
+Public Function CreateDashboardSummaryBuckets() As DashboardSummaryBuckets
+
+    Dim buckets As DashboardSummaryBuckets
+
+    buckets.DueThisCycle = CreateDashboardSummaryBucket()
+    buckets.DueNextCycle = CreateDashboardSummaryBucket()
+    buckets.DueNextMaintenanceCycle = CreateDashboardSummaryBucket()
+    buckets.ExtensionsRequired = CreateDashboardSummaryBucket()
+    buckets.PulledTasks = CreateDashboardSummaryBucket()
+    buckets.CriticalTasks = CreateDashboardSummaryBucket()
+
+    CreateDashboardSummaryBuckets = buckets
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Creates one dashboard summary bucket.
+' Output : DashboardSummaryBucket with all dictionaries initialised.
+'------------------------------------------------------------------------------
+Private Function CreateDashboardSummaryBucket() As DashboardSummaryBucket
+
+    Dim bucket As DashboardSummaryBucket
+
+    Set bucket.Summary = CreateObject("Scripting.Dictionary")
+    Set bucket.Details = CreateObject("Scripting.Dictionary")
+    Set bucket.TaskKeys = CreateObject("Scripting.Dictionary")
+
+    CreateDashboardSummaryBucket = bucket
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Classifies task occurrences into dashboard summary buckets.
+' Input : dashboardBuckets - dashboard bucket set to populate.
+' taskOccurrences - visible task occurrence records.
+' totalOccurrences - number of populated occurrence records.
+' settings - planner settings.
+' weekStartDates - visible planner week start dates.
+' weekCyclePositions - aircraft weekly cycle positions.
+' isDownMaintenance - True if aircraft is long-term down.
+' hasDownWindow - True if down/ETBOL dates are available.
+' downStartDate - long-term down start date.
+' rtsDate - expected return to service / ETBOL date.
+' currentWeekIndex - current visible week index.
+' maintenanceStartIndex - current/next maintenance start index.
+' maintenanceEndIndex - current/next maintenance end index.
+'------------------------------------------------------------------------------
+Public Sub ClassifyDashboardOccurrences(ByRef dashboardBuckets As DashboardSummaryBuckets, _
+                                        ByRef taskOccurrences() As TaskOccurrence, _
+                                        ByVal totalOccurrences As Long, _
+                                        ByRef settings As PlannerSettings, _
+                                        ByRef weekStartDates() As Date, _
+                                        ByRef weekCyclePositions() As Long, _
+                                        ByVal isDownMaintenance As Boolean, _
+                                        ByVal hasDownWindow As Boolean, _
+                                        ByVal downStartDate As Date, _
+                                        ByVal rtsDate As Date, _
+                                        ByVal currentWeekIndex As Long, _
+                                        ByVal maintenanceStartIndex As Long, _
+                                        ByVal maintenanceEndIndex As Long)
+
+    Dim occurrenceIndex As Long
+
+    For occurrenceIndex = 1 To totalOccurrences
+
+        Dim dashboardWeekIndex As Long
+        dashboardWeekIndex = FindDisplayWeekIndex( _
+            taskOccurrences(occurrenceIndex).scheduledWeek, _
+            weekStartDates, _
+            settings.displayWeeksShown)
+
+        If dashboardWeekIndex = 0 Then GoTo NextOccurrence
+
+        Dim intervalLabel As String
+        intervalLabel = BuildOccurrenceIntervalLabel(taskOccurrences(occurrenceIndex))
+
+        Dim detailText As String
+        detailText = BuildDashboardOccurrenceDetail(taskOccurrences(occurrenceIndex))
+
+        Dim taskKey As String
+        taskKey = GetTaskOccurrenceKey(taskOccurrences(occurrenceIndex))
+
+        If isDownMaintenance Then
+
+            ClassifyDownMaintenanceOccurrence _
+                dashboardBuckets, _
+                taskOccurrences(occurrenceIndex), _
+                taskKey, _
+                intervalLabel, _
+                detailText, _
+                dashboardWeekIndex, _
+                hasDownWindow, _
+                downStartDate, _
+                rtsDate, _
+                settings, _
+                weekStartDates, _
+                weekCyclePositions
+
+        Else
+
+            ClassifyInCycleOccurrence _
+                dashboardBuckets, _
+                taskOccurrences(occurrenceIndex), _
+                taskKey, _
+                intervalLabel, _
+                detailText, _
+                dashboardWeekIndex, _
+                currentWeekIndex, _
+                maintenanceStartIndex, _
+                maintenanceEndIndex, _
+                weekCyclePositions, _
+                settings
+
+        End If
+
+        AddMovementAndCriticalBuckets _
+            dashboardBuckets, _
+            taskOccurrences(occurrenceIndex), _
+            taskKey, _
+            intervalLabel, _
+            detailText
+
+NextOccurrence:
+    Next occurrenceIndex
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Classifies one occurrence for a long-term down maintenance aircraft.
+'------------------------------------------------------------------------------
+Private Sub ClassifyDownMaintenanceOccurrence(ByRef dashboardBuckets As DashboardSummaryBuckets, _
+                                              ByRef occurrence As TaskOccurrence, _
+                                              ByVal taskKey As String, _
+                                              ByVal intervalLabel As String, _
+                                              ByVal detailText As String, _
+                                              ByVal dashboardWeekIndex As Long, _
+                                              ByVal hasDownWindow As Boolean, _
+                                              ByVal downStartDate As Date, _
+                                              ByVal rtsDate As Date, _
+                                              ByRef settings As PlannerSettings, _
+                                              ByRef weekStartDates() As Date, _
+                                              ByRef weekCyclePositions() As Long)
+
+    If Not hasDownWindow Then Exit Sub
+
+    Dim downPeriodStartWeek As Date
+    Dim downPeriodEndWeek As Date
+
+    downPeriodStartWeek = DisplayWeekStart(downStartDate, settings.displayStart)
+    downPeriodEndWeek = DisplayWeekStart(rtsDate, settings.displayStart)
+
+    ' Due This Cycle = all tasks due during the down/maintenance period.
+    If occurrence.scheduledWeek >= downPeriodStartWeek And _
+       occurrence.scheduledWeek <= downPeriodEndWeek Then
+
+        AddOccurrenceToDashboardBucket _
+            dashboardBuckets.DueThisCycle.Summary, _
+            dashboardBuckets.DueThisCycle.Details, _
+            dashboardBuckets.DueThisCycle.TaskKeys, _
+            taskKey, _
+            intervalLabel, _
+            detailText
+
+        Exit Sub
+
+    End If
+
+    ' Due Next Cycle = first flying week only after RTS/ETBOL.
+    Dim firstFlyingWeekAfterDown As Long
+
+    firstFlyingWeekAfterDown = FindFirstFlyingWeekAfterDate( _
+        rtsDate, _
+        settings, _
+        weekStartDates, _
+        weekCyclePositions)
+
+    If firstFlyingWeekAfterDown > 0 Then
+
+        If dashboardWeekIndex = firstFlyingWeekAfterDown Then
+
+            AddOccurrenceToDashboardBucket _
+                dashboardBuckets.DueNextCycle.Summary, _
+                dashboardBuckets.DueNextCycle.Details, _
+                dashboardBuckets.DueNextCycle.TaskKeys, _
+                taskKey, _
+                intervalLabel, _
+                detailText
+
+        End If
+
+    End If
+
+    ' Due Next Maint Cycle intentionally remains blank for down aircraft.
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Classifies one occurrence for a normal in-cycle aircraft.
+' Notes :
+' Flying aircraft:
+' Due This Cycle = tasks due this week.
+' Due Next Cycle = tasks due next week.
+'
+' Aircraft currently in a normal maintenance cycle:
+' Due This Cycle = tasks due in the current maintenance period.
+' Due Next Cycle = tasks due in the first flying cycle after maintenance.
+'------------------------------------------------------------------------------
+Private Sub ClassifyInCycleOccurrence(ByRef dashboardBuckets As DashboardSummaryBuckets, _
+                                      ByRef occurrence As TaskOccurrence, _
+                                      ByVal taskKey As String, _
+                                      ByVal intervalLabel As String, _
+                                      ByVal detailText As String, _
+                                      ByVal dashboardWeekIndex As Long, _
+                                      ByVal currentWeekIndex As Long, _
+                                      ByVal maintenanceStartIndex As Long, _
+                                      ByVal maintenanceEndIndex As Long, _
+                                      ByRef weekCyclePositions() As Long, _
+                                      ByRef settings As PlannerSettings)
+
+    If currentWeekIndex < 1 Then Exit Sub
+    If currentWeekIndex > settings.displayWeeksShown Then Exit Sub
+
+    Dim aircraftCurrentlyInMaintenance As Boolean
+    aircraftCurrentlyInMaintenance = _
+        (weekCyclePositions(currentWeekIndex) > settings.flyingWeeks)
+
+    If aircraftCurrentlyInMaintenance Then
+
+        ' Due This Cycle = all tasks due in the current maintenance period.
+        If maintenanceStartIndex > 0 And _
+           dashboardWeekIndex >= maintenanceStartIndex And _
+           dashboardWeekIndex <= maintenanceEndIndex Then
+
+            AddOccurrenceToDashboardBucket _
+                dashboardBuckets.DueThisCycle.Summary, _
+                dashboardBuckets.DueThisCycle.Details, _
+                dashboardBuckets.DueThisCycle.TaskKeys, _
+                taskKey, _
+                intervalLabel, _
+                detailText
+
+        End If
+
+        ' Due Next Cycle = first flying week only after the maintenance period.
+        Dim firstFlyingWeekAfterMaintenance As Long
+        firstFlyingWeekAfterMaintenance = maintenanceEndIndex + 1
+
+        If firstFlyingWeekAfterMaintenance <= settings.displayWeeksShown Then
+
+            If weekCyclePositions(firstFlyingWeekAfterMaintenance) <= settings.flyingWeeks Then
+
+                If dashboardWeekIndex = firstFlyingWeekAfterMaintenance Then
+
+                    AddOccurrenceToDashboardBucket _
+                        dashboardBuckets.DueNextCycle.Summary, _
+                        dashboardBuckets.DueNextCycle.Details, _
+                        dashboardBuckets.DueNextCycle.TaskKeys, _
+                        taskKey, _
+                        intervalLabel, _
+                        detailText
+
+                End If
+
+            End If
+
+        End If
+
+        ' Due Next Maint Cycle intentionally remains blank for aircraft already
+        ' in maintenance.
+
+    Else
+
+        ' Due This Cycle = tasks due this week.
+        If dashboardWeekIndex = currentWeekIndex Then
+
+            AddOccurrenceToDashboardBucket _
+                dashboardBuckets.DueThisCycle.Summary, _
+                dashboardBuckets.DueThisCycle.Details, _
+                dashboardBuckets.DueThisCycle.TaskKeys, _
+                taskKey, _
+                intervalLabel, _
+                detailText
+
+        End If
+
+        ' Due Next Cycle = tasks due next week.
+        Dim nextWeekIndex As Long
+        nextWeekIndex = currentWeekIndex + 1
+
+        If nextWeekIndex <= settings.displayWeeksShown Then
+
+            If dashboardWeekIndex = nextWeekIndex Then
+
+                AddOccurrenceToDashboardBucket _
+                    dashboardBuckets.DueNextCycle.Summary, _
+                    dashboardBuckets.DueNextCycle.Details, _
+                    dashboardBuckets.DueNextCycle.TaskKeys, _
+                    taskKey, _
+                    intervalLabel, _
+                    detailText
+
+            End If
+
+        End If
+
+        ' Due Next Maint Cycle = all tasks due in the next maintenance period.
+        If maintenanceStartIndex > 0 And maintenanceEndIndex > 0 Then
+
+            If dashboardWeekIndex >= maintenanceStartIndex And _
+               dashboardWeekIndex <= maintenanceEndIndex Then
+
+                AddOccurrenceToDashboardBucket _
+                    dashboardBuckets.DueNextMaintenanceCycle.Summary, _
+                    dashboardBuckets.DueNextMaintenanceCycle.Details, _
+                    dashboardBuckets.DueNextMaintenanceCycle.TaskKeys, _
+                    taskKey, _
+                    intervalLabel, _
+                    detailText
+
+            End If
+
+        End If
+
+    End If
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Adds movement and critical-task dashboard buckets.
+'------------------------------------------------------------------------------
+Private Sub AddMovementAndCriticalBuckets(ByRef dashboardBuckets As DashboardSummaryBuckets, _
+                                          ByRef occurrence As TaskOccurrence, _
+                                          ByVal taskKey As String, _
+                                          ByVal intervalLabel As String, _
+                                          ByVal detailText As String)
+
+    If occurrence.wasAutoPushed Then
+        AddOccurrenceToDashboardBucket _
+            dashboardBuckets.ExtensionsRequired.Summary, _
+            dashboardBuckets.ExtensionsRequired.Details, _
+            dashboardBuckets.ExtensionsRequired.TaskKeys, _
+            taskKey, _
+            intervalLabel, _
+            detailText
+    End If
+
+    If occurrence.wasAutoPulled Then
+        AddOccurrenceToDashboardBucket _
+            dashboardBuckets.PulledTasks.Summary, _
+            dashboardBuckets.PulledTasks.Details, _
+            dashboardBuckets.PulledTasks.TaskKeys, _
+            taskKey, _
+            intervalLabel, _
+            detailText
+    End If
+
+    If occurrence.isHighlighted Then
+        AddOccurrenceToDashboardBucket _
+            dashboardBuckets.CriticalTasks.Summary, _
+            dashboardBuckets.CriticalTasks.Details, _
+            dashboardBuckets.CriticalTasks.TaskKeys, _
+            taskKey, _
+            intervalLabel, _
+            detailText
+    End If
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Finds the end of a contiguous flying block.
+' Input : flyingStartIndex - first week index of the flying block.
+' settings - planner settings.
+' weekCyclePositions - weekly cycle position array.
+' Output : Last week index in the contiguous flying block.
+'------------------------------------------------------------------------------
+Private Function FindFlyingBlockEndIndex(ByVal flyingStartIndex As Long, _
+                                         ByRef settings As PlannerSettings, _
+                                         ByRef weekCyclePositions() As Long) As Long
+
+    Dim weekIndex As Long
+
+    For weekIndex = flyingStartIndex To settings.displayWeeksShown
+
+        If weekCyclePositions(weekIndex) <= settings.flyingWeeks Then
+            FindFlyingBlockEndIndex = weekIndex
+        Else
+            Exit Function
+        End If
+
+    Next weekIndex
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns the first visible flying week index on or after a given date.
+' Input : afterDate - date after which to search.
+' settings - validated planner settings.
+' weekStartDates - visible planner week start dates.
+' weekCyclePositions - weekly cycle positions for the aircraft.
+' Output : Week index, or 0 if no flying week is found in the display range.
+'------------------------------------------------------------------------------
+Private Function FindFirstFlyingWeekAfterDate(ByVal afterDate As Date, _
+                                              ByRef settings As PlannerSettings, _
+                                              ByRef weekStartDates() As Date, _
+                                              ByRef weekCyclePositions() As Long) As Long
+
+    Dim targetWeekStart As Date
+    targetWeekStart = DisplayWeekStart(afterDate, settings.displayStart)
+
+    Dim weekIndex As Long
+
+    For weekIndex = 1 To settings.displayWeeksShown
+
+        If weekStartDates(weekIndex) >= targetWeekStart Then
+
+            If weekCyclePositions(weekIndex) <= settings.flyingWeeks Then
+                FindFirstFlyingWeekAfterDate = weekIndex
+                Exit Function
+            End If
+
+        End If
+
+    Next weekIndex
+
+    FindFirstFlyingWeekAfterDate = 0
+
+End Function
+
+

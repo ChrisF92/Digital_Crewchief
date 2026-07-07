@@ -1,0 +1,255 @@
+Attribute VB_Name = "modAircraftRefresh"
+Option Explicit
+
+'------------------------------------------------------------------------------
+' Module : modAircraftRefresh
+' Purpose : Refreshes one aircraft during the full planner refresh.
+'------------------------------------------------------------------------------
+
+
+'------------------------------------------------------------------------------
+' Purpose : Refreshes one aircraft's task occurrences, chart, and dashboard row.
+' Input : aircraftIndex - index within the active aircraft roster.
+' roster - loaded aircraft roster.
+' settings - validated planner settings.
+' rates - planner flying rates.
+' weekStartDates - display week start dates.
+' dashboardWs - Dashboard worksheet.
+'------------------------------------------------------------------------------
+Public Sub RefreshOneAircraft(ByVal aircraftIndex As Long, _
+                              ByRef roster As aircraftRoster, _
+                              ByRef settings As PlannerSettings, _
+                              ByRef rates As plannerRates, _
+                              ByRef weekStartDates() As Date, _
+                              ByVal dashboardWs As Worksheet)
+
+    Dim tailNumber As String
+    tailNumber = roster.tailNumbers(aircraftIndex)
+
+    Dim isDownMaintenance As Boolean
+    isDownMaintenance = (roster.planningModes(aircraftIndex) = PLANNING_MODE_DOWN)
+
+    Dim downStartDate As Date
+    Dim rtsDate As Date
+    Dim hasDownWindow As Boolean
+    Dim rtsFlyStart As Date
+
+    LoadAircraftDownWindow _
+        roster, _
+        aircraftIndex, _
+        isDownMaintenance, _
+        downStartDate, _
+        rtsDate, _
+        hasDownWindow, _
+        rtsFlyStart
+
+    Dim importWs As Worksheet
+    Dim chartWs As Worksheet
+
+    Set importWs = GetOrCreateAircraftImportSheet(tailNumber)
+    Set chartWs = GetOrCreateAircraftChartSheet(tailNumber)
+
+    AddChartNavigation _
+        chartWs, _
+        roster.tailNumbers, _
+        roster.aircraftCount
+
+    Dim rotationSchedule As AircraftRotationSchedule
+
+    rotationSchedule = BuildAircraftRotationSchedule( _
+        settings, _
+        rates, _
+        weekStartDates, _
+        roster.cycleStarts(aircraftIndex), _
+        isDownMaintenance, _
+        rtsFlyStart)
+
+    Dim weekHHRates() As Double
+    Dim weekE1Rates() As Double
+    Dim weekE2Rates() As Double
+    Dim weekCyclePositions() As Long
+
+    weekHHRates = rotationSchedule.weekHHRates
+    weekE1Rates = rotationSchedule.weekE1Rates
+    weekE2Rates = rotationSchedule.weekE2Rates
+    weekCyclePositions = rotationSchedule.weekCyclePositions
+
+    Dim aircraftStatus As AircraftCurrentStatus
+
+    aircraftStatus = GetAircraftCurrentStatus( _
+        settings, _
+        weekStartDates, _
+        weekCyclePositions, _
+        isDownMaintenance, _
+        rtsFlyStart, _
+        roster.MaintenanceReasons(aircraftIndex))
+
+    Dim maintenanceStatus As MaintenanceWindowStatus
+
+    maintenanceStatus = GetMaintenanceWindowStatus( _
+        settings, _
+        weekStartDates, _
+        weekCyclePositions, _
+        aircraftStatus.currentWeekIndex, _
+        isDownMaintenance, _
+        roster.MaintenanceStarts(aircraftIndex), _
+        roster.ExpectedReturnToServiceDates(aircraftIndex), _
+        rtsFlyStart)
+
+    Dim taskBuildResult As TaskOccurrenceBuildResult
+
+    taskBuildResult = BuildTaskOccurrencesForAircraft( _
+        importWs, _
+        settings, _
+        settings.forecastStart, _
+        settings.displayStart, _
+        settings.displayEnd, _
+        weekStartDates, _
+        weekHHRates, _
+        weekE1Rates, _
+        weekE2Rates, _
+        weekCyclePositions)
+
+    Dim taskOccurrences() As TaskOccurrence
+    Dim totalOccurrences As Long
+    Dim totalImported As Long
+    Dim totalShown As Long
+
+    taskOccurrences = taskBuildResult.taskOccurrences
+    totalOccurrences = taskBuildResult.totalOccurrences
+    totalImported = taskBuildResult.totalImported
+    totalShown = taskBuildResult.totalShown
+
+    ApplyTaskGrouping _
+        taskOccurrences, _
+        totalOccurrences, _
+        settings.GroupingTolerancePercent, _
+        settings, _
+        weekHHRates, _
+        weekE1Rates, _
+        weekE2Rates
+
+    Dim dashboardBuckets As DashboardSummaryBuckets
+    dashboardBuckets = CreateDashboardSummaryBuckets()
+
+    ClassifyDashboardOccurrences _
+        dashboardBuckets, _
+        taskOccurrences, _
+        totalOccurrences, _
+        settings, _
+        weekStartDates, _
+        weekCyclePositions, _
+        isDownMaintenance, _
+        hasDownWindow, _
+        downStartDate, _
+        rtsDate, _
+        aircraftStatus.currentWeekIndex, _
+        maintenanceStatus.startWeekIndex, _
+        maintenanceStatus.endWeekIndex
+
+    PopulateAircraftChart _
+        chartWs, _
+        tailNumber, _
+        totalImported, _
+        totalShown, _
+        settings, _
+        weekStartDates, _
+        weekCyclePositions, _
+        taskOccurrences, _
+        totalOccurrences, _
+        isDownMaintenance, _
+        rtsFlyStart
+
+    WriteAircraftDashboardRow _
+        dashboardWs, _
+        aircraftIndex, _
+        tailNumber, _
+        aircraftStatus.RotationText, _
+        maintenanceStatus.daysToMaintenance, _
+        chartWs, _
+        importWs, _
+        dashboardBuckets
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Loads down-maintenance dates for one aircraft.
+'------------------------------------------------------------------------------
+Private Sub LoadAircraftDownWindow(ByRef roster As aircraftRoster, _
+                                   ByVal aircraftIndex As Long, _
+                                   ByVal isDownMaintenance As Boolean, _
+                                   ByRef downStartDate As Date, _
+                                   ByRef rtsDate As Date, _
+                                   ByRef hasDownWindow As Boolean, _
+                                   ByRef rtsFlyStart As Date)
+
+    hasDownWindow = False
+    rtsFlyStart = 0
+
+    If Not isDownMaintenance Then Exit Sub
+
+    If IsDate(roster.MaintenanceStarts(aircraftIndex)) Then
+        downStartDate = CDate(roster.MaintenanceStarts(aircraftIndex))
+    Else
+        downStartDate = Date
+    End If
+
+    If IsDate(roster.ExpectedReturnToServiceDates(aircraftIndex)) Then
+        rtsDate = CDate(roster.ExpectedReturnToServiceDates(aircraftIndex))
+    Else
+        rtsDate = Date + 56
+    End If
+
+    If rtsDate < downStartDate Then
+        rtsDate = downStartDate + 56
+    End If
+
+    hasDownWindow = True
+
+    ' First Monday after ETBOL/RTS.
+    rtsFlyStart = rtsDate - Weekday(rtsDate, vbMonday) + 8
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns an aircraft import sheet, creating it if missing.
+'------------------------------------------------------------------------------
+Private Function GetOrCreateAircraftImportSheet(ByVal tailNumber As String) As Worksheet
+
+    Dim importWs As Worksheet
+
+    On Error Resume Next
+    Set importWs = ThisWorkbook.Worksheets(tailNumber & IMPORT_SHEET_SUFFIX)
+    On Error GoTo 0
+
+    If importWs Is Nothing Then
+        Set importWs = CreateImportSheet(tailNumber)
+    End If
+
+    Set GetOrCreateAircraftImportSheet = importWs
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns an aircraft chart sheet, creating it if missing.
+'------------------------------------------------------------------------------
+Private Function GetOrCreateAircraftChartSheet(ByVal tailNumber As String) As Worksheet
+
+    Dim chartWs As Worksheet
+
+    On Error Resume Next
+    Set chartWs = ThisWorkbook.Worksheets(tailNumber & CHART_SHEET_SUFFIX)
+    On Error GoTo 0
+
+    If chartWs Is Nothing Then
+        Set chartWs = CreateChartSheet(tailNumber)
+    End If
+
+    Set GetOrCreateAircraftChartSheet = chartWs
+
+End Function
+
+

@@ -1,0 +1,172 @@
+Attribute VB_Name = "modImportTaskReader"
+Option Explicit
+
+'------------------------------------------------------------------------------
+' Module : modImportTaskReader
+' Purpose : Reads and normalises task rows from an aircraft import sheet.
+'------------------------------------------------------------------------------
+
+Public Type ImportTaskRecord
+    ShowInPlanner As Boolean
+
+    IntervalTypeRaw As String
+    IntervalTypeNormalised As String
+
+    lifeRemaining As Double
+    ActualInterval As Double
+
+    taskCode As String
+    TaskSequence As String
+    taskDescription As String
+    serialNumber As String
+
+    existingExtensionAmount As Double
+    existingExtensionPercent As Double
+
+    ProjectedDueDate As Date
+    HasProjectedDueDate As Boolean
+End Type
+
+
+'------------------------------------------------------------------------------
+' Purpose : Reads one import row and converts it into an ImportTaskRecord.
+' Input : importWs - aircraft import worksheet.
+' importRow - row number to read.
+' Output : Populated ImportTaskRecord.
+'------------------------------------------------------------------------------
+Public Function ReadImportTaskRecord(ByVal importWs As Worksheet, _
+                                     ByVal importRow As Long) As ImportTaskRecord
+
+    Dim taskRecord As ImportTaskRecord
+
+    taskRecord.ShowInPlanner = _
+        UCase$(Trim$(CStr(importWs.Cells(importRow, IMPORT_COL_SHOW).Value))) = "Y"
+
+    taskRecord.IntervalTypeRaw = _
+        UCase$(Trim$(CStr(importWs.Cells(importRow, IMPORT_COL_INTERVAL_TYPE).Value)))
+
+    taskRecord.IntervalTypeNormalised = NormaliseIntervalType(taskRecord.IntervalTypeRaw)
+
+    taskRecord.lifeRemaining = ParseDurationValue( _
+        importWs.Cells(importRow, IMPORT_COL_LIFE_REMAINING).Value, _
+        importWs.Cells(importRow, IMPORT_COL_LIFE_REMAINING))
+
+    taskRecord.ActualInterval = ParseDurationValue( _
+        importWs.Cells(importRow, IMPORT_COL_ACTUAL_INTERVAL).Value, _
+        importWs.Cells(importRow, IMPORT_COL_ACTUAL_INTERVAL))
+
+    taskRecord.taskCode = _
+        CStr(importWs.Cells(importRow, IMPORT_COL_TASK_CODE).Value)
+
+    taskRecord.TaskSequence = _
+        CStr(importWs.Cells(importRow, IMPORT_COL_TASK_SEQUENCE).Value)
+
+    taskRecord.taskDescription = _
+        CStr(importWs.Cells(importRow, IMPORT_COL_TASK_DESCRIPTION).Value)
+
+    taskRecord.serialNumber = _
+        CStr(importWs.Cells(importRow, IMPORT_COL_SERIAL).Value)
+
+    taskRecord.existingExtensionAmount = ParseDurationValue( _
+        importWs.Cells(importRow, IMPORT_COL_EXTENSION).Value, _
+        importWs.Cells(importRow, IMPORT_COL_EXTENSION))
+
+    If taskRecord.ActualInterval > 0 Then
+        taskRecord.existingExtensionPercent = _
+            taskRecord.existingExtensionAmount / taskRecord.ActualInterval
+    Else
+        taskRecord.existingExtensionPercent = 0
+    End If
+
+    Dim parsedDueDate As Variant
+
+    parsedDueDate = ParseDMYDateValue( _
+        importWs.Cells(importRow, IMPORT_COL_PROJECTED_DUE_DATE).Value, _
+        importWs.Cells(importRow, IMPORT_COL_PROJECTED_DUE_DATE).Text)
+
+    If IsDate(parsedDueDate) Then
+        taskRecord.ProjectedDueDate = CDate(parsedDueDate)
+        taskRecord.HasProjectedDueDate = True
+    Else
+        taskRecord.HasProjectedDueDate = False
+    End If
+
+    ReadImportTaskRecord = taskRecord
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Converts source interval type codes into planner interval types.
+' Input : rawIntervalType - value from the import sheet.
+' Output : Normalised planner type, e.g. HH or DD.
+'------------------------------------------------------------------------------
+Public Function NormaliseIntervalType(ByVal rawIntervalType As String) As String
+
+    Select Case UCase$(Trim$(rawIntervalType))
+
+        Case "HH", "AF", "HRS"
+            NormaliseIntervalType = "HH"
+
+        Case "CAL", "C"
+            NormaliseIntervalType = "DD"
+
+        Case Else
+            NormaliseIntervalType = UCase$(Trim$(rawIntervalType))
+
+    End Select
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns True if the task type is hour/counter based.
+' Input : normalisedIntervalType - planner interval type.
+'------------------------------------------------------------------------------
+Public Function IsHourBasedIntervalType(ByVal normalisedIntervalType As String) As Boolean
+
+    Select Case UCase$(Trim$(normalisedIntervalType))
+
+        Case "HH", "E1", "E2"
+            IsHourBasedIntervalType = True
+
+        Case Else
+            IsHourBasedIntervalType = False
+
+    End Select
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns True if the task can be reforecast into future occurrences.
+' Input : normalisedIntervalType - planner interval type.
+' intervalValue - task interval value.
+' reforecastThreshold - configured threshold from planner settings.
+'------------------------------------------------------------------------------
+Public Function CanReforecastTask(ByVal normalisedIntervalType As String, _
+                                  ByVal intervalValue As Double, _
+                                  ByVal reforecastThreshold As Double) As Boolean
+
+    If intervalValue <= 0 Then
+        CanReforecastTask = False
+        Exit Function
+    End If
+
+    If intervalValue >= reforecastThreshold Then
+        CanReforecastTask = False
+        Exit Function
+    End If
+
+    Select Case UCase$(Trim$(normalisedIntervalType))
+
+        Case "HH", "E1", "E2", "DD"
+            CanReforecastTask = True
+
+        Case Else
+            CanReforecastTask = False
+
+    End Select
+
+End Function
+

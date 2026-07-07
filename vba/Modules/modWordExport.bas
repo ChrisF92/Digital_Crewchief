@@ -1,0 +1,535 @@
+Attribute VB_Name = "modWordExport"
+Option Explicit
+
+'------------------------------------------------------------------------------
+' Module : modWordExport
+' Purpose : Exports selected chart period tasks to a Microsoft Word work pack.
+'------------------------------------------------------------------------------
+
+'------------------------------------------------------------------------------
+' Purpose : Generates a Microsoft Word work pack for the selected aircraft chart period.
+' Input : None. Uses ActiveSheet and ActiveCell to determine aircraft and selected period.
+' Output : Creates and displays a Word document containing selected-period tasks.
+'------------------------------------------------------------------------------
+Public Sub GenerateWordWorkPack()
+
+    Dim chartWs As Worksheet
+    Set chartWs = ActiveSheet
+
+    If Not IsAircraftChartSheet(chartWs.Name) Then
+        MsgBox "Open an aircraft Chart sheet first, select a week/down period, then run this report." & vbCrLf & vbCrLf & _
+               "Expected sheet name format: TailNumber" & CHART_SHEET_SUFFIX & vbCrLf & _
+               "Current sheet: " & chartWs.Name, _
+               vbExclamation, "Generate Work Pack"
+        Exit Sub
+    End If
+
+    If ActiveCell.Column < CHART_FIRST_WEEK_COL Then
+        MsgBox "Select a week/down-period column on the chart first.", _
+               vbExclamation, "Generate Work Pack"
+        Exit Sub
+    End If
+
+    Dim selCol As Long
+    selCol = ActiveCell.Column
+
+    Dim firstWeekCol As Long
+    Dim lastWeekCol As Long
+
+    firstWeekCol = CHART_FIRST_WEEK_COL
+    lastWeekCol = chartWs.Cells(CHART_DATE_ROW, chartWs.Columns.Count).End(xlToLeft).Column
+
+    If selCol < firstWeekCol Or selCol > lastWeekCol Then
+        MsgBox "Select a valid week/down-period column.", vbExclamation, "Generate Work Pack"
+        Exit Sub
+    End If
+
+    ' Determine selected period.
+    Dim periodStartCol As Long
+    Dim periodEndCol As Long
+
+    periodStartCol = selCol
+    periodEndCol = selCol
+
+    If ActiveCell.MergeCells Then
+        periodStartCol = ActiveCell.MergeArea.Column
+        periodEndCol = ActiveCell.MergeArea.Column + ActiveCell.MergeArea.Columns.Count - 1
+
+    ElseIf IsDownOrMaintHeader(chartWs.Cells(3, selCol).Value) Then
+
+        ' Walk left over same down/maint block.
+        Do While periodStartCol > firstWeekCol
+            If IsDownOrMaintHeader(chartWs.Cells(3, periodStartCol - 1).Value) Then
+                periodStartCol = periodStartCol - 1
+            Else
+                Exit Do
+            End If
+        Loop
+
+        ' Walk right over same down/maint block.
+        Do While periodEndCol < lastWeekCol
+            If IsDownOrMaintHeader(chartWs.Cells(3, periodEndCol + 1).Value) Then
+                periodEndCol = periodEndCol + 1
+            Else
+                Exit Do
+            End If
+        Loop
+
+    End If
+
+    If Not IsDate(chartWs.Cells(4, periodStartCol).Value) Or _
+       Not IsDate(chartWs.Cells(4, periodEndCol).Value) Then
+        MsgBox "The selected period does not contain valid dates on row 4.", _
+               vbExclamation, "Generate Work Pack"
+        Exit Sub
+    End If
+
+    Dim periodStartDate As Date
+    Dim periodEndDate As Date
+
+    periodStartDate = CDate(chartWs.Cells(4, periodStartCol).Value)
+    periodEndDate = CDate(chartWs.Cells(4, periodEndCol).Value) + 6
+
+    Dim tail As String
+    tail = Left$(Trim$(chartWs.Name), Len(Trim$(chartWs.Name)) - Len(Trim$(CHART_SHEET_SUFFIX)))
+
+    Dim periodTitle As String
+
+    If periodStartCol = periodEndCol Then
+        periodTitle = CStr(chartWs.Cells(3, periodStartCol).Value) & " - " & _
+                      Format$(chartWs.Cells(4, periodStartCol).Value, "DD/MM/YYYY")
+    Else
+        periodTitle = "Down / Maintenance Period - " & _
+                      Format$(periodStartDate, "DD/MM/YYYY") & _
+                      " to " & Format$(periodEndDate, "DD/MM/YYYY")
+    End If
+
+    On Error GoTo ErrHandler
+
+    BeginFastMode
+
+    ' Collect task comments for the selected period.
+    Dim lastRow As Long
+    lastRow = chartWs.Cells(chartWs.Rows.Count, 1).End(xlUp).Row
+
+    Dim reportText As String
+    Dim extensionText As String
+    Dim totalTasks As Long
+    Dim extensionTasks As Long
+
+    Dim r As Long
+    Dim c As Long
+
+    reportText = vbNullString
+    extensionText = vbNullString
+    totalTasks = 0
+    extensionTasks = 0
+
+    For r = 5 To lastRow
+
+        Dim rowLabel As String
+        rowLabel = Trim$(CStr(chartWs.Cells(r, 3).Value))
+
+        If Len(rowLabel) > 0 Then
+
+            Dim rowTasks As String
+            Dim rowCount As Long
+
+            rowTasks = vbNullString
+            rowCount = 0
+
+            For c = periodStartCol To periodEndCol
+
+                Dim taskCell As Range
+                Set taskCell = chartWs.Cells(r, c)
+
+                If taskCell.MergeCells Then
+                    ' Only process the first cell of a merged area once.
+                    If taskCell.Address = taskCell.MergeArea.Cells(1, 1).Address Then
+                        Set taskCell = taskCell.MergeArea.Cells(1, 1)
+                    Else
+                        GoTo NextTaskCol
+                    End If
+                End If
+
+                If Not taskCell.Comment Is Nothing Then
+
+                    Dim rawComment As String
+                    Dim cleanComment As String
+
+                    rawComment = taskCell.Comment.Text
+                    cleanComment = CleanTaskCommentForWord(rawComment)
+
+                    If Len(cleanComment) > 0 Then
+                        If Len(rowTasks) > 0 Then rowTasks = rowTasks & vbCrLf
+                        rowTasks = rowTasks & cleanComment
+
+                        If IsNumeric(taskCell.Value) Then
+                            rowCount = rowCount + CLng(taskCell.Value)
+                        Else
+                            rowCount = rowCount + 1
+                        End If
+                    End If
+
+                End If
+
+NextTaskCol:
+            Next c
+
+            If Len(rowTasks) > 0 Then
+                If Len(reportText) > 0 Then reportText = reportText & vbCrLf & vbCrLf
+
+                reportText = reportText & rowLabel & _
+                             " (" & rowCount & " task" & IIf(rowCount = 1, "", "s") & ")" & _
+                             vbCrLf & rowTasks
+
+                totalTasks = totalTasks + rowCount
+            End If
+
+        End If
+
+    Next r
+
+    ' Scan all chart comments for extension tasks due during the selected period.
+    Dim extScanRow As Long
+    Dim extScanCol As Long
+
+    For extScanRow = 5 To lastRow
+
+        Dim extRowLabel As String
+        extRowLabel = Trim$(CStr(chartWs.Cells(extScanRow, 3).Value))
+
+        If Len(extRowLabel) > 0 Then
+
+            For extScanCol = firstWeekCol To lastWeekCol
+
+                Dim extCell As Range
+                Set extCell = chartWs.Cells(extScanRow, extScanCol)
+
+                If extCell.MergeCells Then
+                    ' Only process the first cell of a merged area once.
+                    If extCell.Address = extCell.MergeArea.Cells(1, 1).Address Then
+                        Set extCell = extCell.MergeArea.Cells(1, 1)
+                    Else
+                        GoTo NextExtScanCol
+                    End If
+                End If
+
+                If Not extCell.Comment Is Nothing Then
+
+                    Dim extDueText As String
+
+                    extDueText = ExtractExtensionTasksDueInPeriodFromComment( _
+                                    extCell.Comment.Text, _
+                                    periodStartDate, _
+                                    periodEndDate)
+
+                    If Len(extDueText) > 0 Then
+                        If Len(extensionText) > 0 Then extensionText = extensionText & vbCrLf & vbCrLf
+
+                        extensionText = extensionText & extRowLabel & ":" & vbCrLf & extDueText
+                        extensionTasks = extensionTasks + CountExtensionLines(extDueText)
+                    End If
+
+                End If
+
+NextExtScanCol:
+            Next extScanCol
+
+        End If
+
+    Next extScanRow
+
+    If totalTasks = 0 Then
+        MsgBox "No tasks found for the selected week/down period.", _
+               vbInformation, "Generate Work Pack"
+        GoTo CleanExit
+    End If
+
+    ' Create Word document using late binding.
+    Dim wdApp As Object
+    Dim wdDoc As Object
+    Dim wdRange As Object
+    Dim wordWasRunning As Boolean
+
+    wordWasRunning = False
+
+    On Error Resume Next
+    Set wdApp = GetObject(, "Word.Application")
+    If Not wdApp Is Nothing Then wordWasRunning = True
+    On Error GoTo ErrHandler
+
+    If wdApp Is Nothing Then Set wdApp = CreateObject("Word.Application")
+
+    If wdApp Is Nothing Then
+        MsgBox "Could not start Microsoft Word.", vbExclamation, "Generate Work Pack"
+        GoTo CleanExit
+    End If
+
+    wdApp.Visible = True
+
+    Set wdDoc = wdApp.Documents.Add
+    Set wdRange = wdDoc.Range
+
+    Dim extensionSection As String
+
+    If extensionTasks > 0 Then
+        extensionSection = vbCrLf & _
+                           "EXTENSIONS REQUIRED" & vbCrLf & _
+                           String$(60, "-") & vbCrLf & _
+                           extensionTasks & " task(s) require extension:" & vbCrLf & vbCrLf & _
+                           extensionText & vbCrLf
+    Else
+        extensionSection = vbCrLf & _
+                           "EXTENSIONS REQUIRED" & vbCrLf & _
+                           String$(60, "-") & vbCrLf & _
+                           "No extensions required for this selected period." & vbCrLf
+    End If
+
+    wdRange.Text = tail & " Maintenance Work Pack" & vbCrLf & _
+                   periodTitle & vbCrLf & _
+                   "Generated: " & Format$(Now, "DD/MM/YYYY HH:NN") & vbCrLf & _
+                   "Total tasks: " & totalTasks & vbCrLf & _
+                   "Extensions required: " & extensionTasks & vbCrLf & _
+                   String$(60, "=") & vbCrLf & _
+                   extensionSection & vbCrLf & _
+                   "TASKS DUE IN SELECTED PERIOD" & vbCrLf & _
+                   String$(60, "-") & vbCrLf & _
+                   reportText
+
+    ' Basic formatting.
+    wdDoc.Range.Font.Name = "Arial"
+    wdDoc.Range.Font.Size = 10
+
+    With wdDoc.Paragraphs(1).Range.Font
+        .Bold = True
+        .Size = 18
+    End With
+
+    With wdDoc.Paragraphs(2).Range.Font
+        .Bold = True
+        .Size = 12
+    End With
+
+    MsgBox "Word work pack created for " & tail & "." & Chr$(10) & _
+           totalTasks & " task(s) included.", _
+           vbInformation, "Generate Work Pack"
+
+CleanExit:
+    EndFastMode
+    Exit Sub
+
+ErrHandler:
+    On Error Resume Next
+    If Not wdDoc Is Nothing Then wdDoc.Close SaveChanges:=False
+    If Not wordWasRunning And Not wdApp Is Nothing Then wdApp.Quit
+    On Error GoTo 0
+
+    EndFastMode
+
+    MsgBox "Word export failed." & vbCrLf & vbCrLf & _
+           "Error " & Err.Number & ": " & Err.Description, _
+           vbExclamation, "Generate Work Pack"
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Counts extension task lines in prepared extension text.
+' Input : extensionText - multi-line extension task text.
+' Output : Number of lines containing extension tags.
+'------------------------------------------------------------------------------
+Private Function CountExtensionLines(extensionText As String) As Long
+
+    Dim lines() As String
+    lines = Split(extensionText, vbCrLf)
+
+    Dim i As Long
+    Dim cnt As Long
+
+    For i = LBound(lines) To UBound(lines)
+        If InStr(1, lines(i), "[EXT", vbTextCompare) > 0 Then
+            cnt = cnt + 1
+        End If
+    Next i
+
+    CountExtensionLines = cnt
+
+End Function
+
+'------------------------------------------------------------------------------
+' Purpose : Extracts extension tasks whose extension due date falls within a selected period.
+' Input : commentText - raw Excel comment text.
+' periodStartDate - selected period start date.
+' periodEndDate - selected period end date.
+' Output : Multi-line string of matching extension task lines.
+'------------------------------------------------------------------------------
+Private Function ExtractExtensionTasksDueInPeriodFromComment(commentText As String, _
+                                                     periodStartDate As Date, _
+                                                     periodEndDate As Date) As String
+
+    Dim s As String
+    s = commentText
+
+    ' Remove leading "x task(s):" line if present.
+    Dim firstBreak As Long
+    firstBreak = InStr(s, Chr(10))
+
+    If firstBreak > 0 Then
+        If InStr(1, Left(s, firstBreak), "task(s):", vbTextCompare) > 0 Then
+            s = Mid(s, firstBreak + 1)
+        End If
+    End If
+
+    Dim lines() As String
+    lines = Split(s, Chr(10))
+
+    Dim result As String
+    Dim i As Long
+    Dim lineText As String
+    Dim dueDate As Date
+
+    For i = LBound(lines) To UBound(lines)
+
+        lineText = Trim(CStr(lines(i)))
+
+        If Len(lineText) > 0 Then
+            If InStr(1, lineText, "[EXT. REQ. FOR ", vbTextCompare) > 0 Then
+
+                If TryGetExtDueDate(lineText, dueDate) Then
+                    If dueDate >= periodStartDate And dueDate <= periodEndDate Then
+                        If Len(result) > 0 Then result = result & vbCrLf
+                        result = result & lineText
+                    End If
+                End If
+
+            End If
+        End If
+
+    Next i
+
+    ExtractExtensionTasksDueInPeriodFromComment = result
+
+End Function
+
+'------------------------------------------------------------------------------
+' Purpose : Reads an extension due date from a task comment line.
+' Input : lineText - comment line containing an [EXT DUE DD/MM/YYYY] tag.
+' dueDate - returned due date if parsed successfully.
+' Output : True if a valid extension due date was found, otherwise False.
+'------------------------------------------------------------------------------
+Private Function TryGetExtDueDate(lineText As String, ByRef dueDate As Date) As Boolean
+    
+    Dim p As Long
+    p = InStr(1, lineText, "[EXT. REQ. FOR ", vbTextCompare)
+    
+    If p = 0 Then
+        TryGetExtDueDate = False
+        Exit Function
+    End If
+    
+    Dim dateStart As Long
+    dateStart = p + Len("[EXT. REQ. FOR ")
+    
+    Dim dateText As String
+    dateText = Mid(lineText, dateStart, 10)
+    
+    TryGetExtDueDate = TryParseUKDate(dateText, dueDate)
+
+End Function
+
+'------------------------------------------------------------------------------
+' Purpose : Parses a UK-format date string.
+' Input : dateText - date text in DD/MM/YYYY format.
+' parsedDate - returned date if parsing succeeds.
+' Output : True if parsed successfully, otherwise False.
+'------------------------------------------------------------------------------
+Private Function TryParseUKDate(dateText As String, ByRef parsedDate As Date) As Boolean
+
+    Dim parts() As String
+    parts = Split(Trim(dateText), "/")
+
+    If UBound(parts) <> 2 Then
+        TryParseUKDate = False
+        Exit Function
+    End If
+
+    If Not IsNumeric(parts(0)) Or Not IsNumeric(parts(1)) Or Not IsNumeric(parts(2)) Then
+        TryParseUKDate = False
+        Exit Function
+    End If
+
+    On Error GoTo BadDate
+
+    parsedDate = DateSerial(CLng(parts(2)), CLng(parts(1)), CLng(parts(0)))
+    TryParseUKDate = True
+    Exit Function
+
+BadDate:
+    TryParseUKDate = False
+
+End Function
+
+'------------------------------------------------------------------------------
+' Purpose : Cleans chart comment text for inclusion in a Word report.
+' Input : commentText - raw Excel comment text.
+' Output : Cleaned multi-line text using Word-friendly line breaks.
+'------------------------------------------------------------------------------
+Private Function CleanTaskCommentForWord(commentText As String) As String
+
+    Dim s As String
+    s = commentText
+
+    ' Remove the leading "x task(s):" line if present.
+    Dim firstBreak As Long
+    firstBreak = InStr(s, Chr(10))
+
+    If firstBreak > 0 Then
+        If InStr(1, Left(s, firstBreak), "task(s):", vbTextCompare) > 0 Then
+            s = Mid(s, firstBreak + 1)
+        End If
+    End If
+
+    s = Replace(s, Chr(10), vbCrLf)
+    s = Trim(s)
+
+    CleanTaskCommentForWord = s
+
+End Function
+
+'------------------------------------------------------------------------------
+' Purpose : Determines whether a chart header value represents a down or maintenance week
+' Input : headerValue - value from the chart header row, usually row 3.
+' Output : True if the value is "DOWN" or starts with "MAINT WK"; otherwise false
+'------------------------------------------------------------------------------
+Private Function IsDownOrMaintHeader(ByVal headerValue As Variant) As Boolean
+
+    Dim s As String
+    s = UCase$(Trim$(CStr(headerValue)))
+
+    IsDownOrMaintHeader = (s = "DOWN" Or Left$(s, 8) = "MAINT WK")
+
+End Function
+
+'------------------------------------------------------------------------------
+' Purpose : Determines whether a worksheet name follows the aircraft chart
+' naming convention.
+' Input : sheetName - worksheet name to test.
+' Output : True if the sheet name ends with CHART_SHEET_SUFFIX;
+' otherwise False.
+'------------------------------------------------------------------------------
+Private Function IsAircraftChartSheet(ByVal sheetName As String) As Boolean
+
+    Dim cleanSheetName As String
+    Dim cleanSuffix As String
+
+    cleanSheetName = UCase$(Trim$(sheetName))
+    cleanSuffix = UCase$(Trim$(CHART_SHEET_SUFFIX))
+
+    If Len(cleanSuffix) = 0 Then
+        IsAircraftChartSheet = False
+    Else
+        IsAircraftChartSheet = (Right$(cleanSheetName, Len(cleanSuffix)) = cleanSuffix)
+    End If
+
+End Function

@@ -1,0 +1,734 @@
+Attribute VB_Name = "modImport"
+Option Explicit
+
+'------------------------------------------------------------------------------
+' Module : modImport
+' Purpose : Handles importing of aircraft task schedules.
+'------------------------------------------------------------------------------
+
+Private mChartImportWarningsShown As Object
+
+'------------------------------------------------------------------------------
+' Purpose : Imports a SITS/task export file into the selected aircraft import sheet.
+' Input : tail - optional aircraft tail number. If blank, the user is prompted.
+' Output : Populates the aircraft import worksheet and optionally triggers RefreshAll
+'------------------------------------------------------------------------------
+Public Sub ImportTaskData(Optional tail As String = "")
+    If tail = "" Then
+        tail = PickAircraft("Import data for:")
+        If tail = "" Then Exit Sub
+    End If
+
+    Dim impWs As Worksheet
+    Set impWs = Nothing
+
+    On Error Resume Next
+    Set impWs = ThisWorkbook.Sheets(tail & IMPORT_SHEET_SUFFIX)
+    On Error GoTo 0
+
+    If impWs Is Nothing Then
+        MsgBox "Sheet missing.", vbExclamation, "Error"
+        Exit Sub
+    End If
+
+    Dim fp As Variant
+    fp = Application.GetOpenFilename("Excel (*.xlsx;*.xls;*.xlsm;*.csv),*.xlsx;*.xls;*.xlsm;*.csv", , _
+         "Select export for " & tail)
+
+    If fp = False Then Exit Sub
+
+    On Error GoTo ImportErrHandler
+
+    BeginFastMode
+
+    Dim srcWb As Workbook
+    Dim openErrNum As Long
+    Dim openErrDesc As String
+
+    On Error Resume Next
+    Set srcWb = Workbooks.Open(CStr(fp), ReadOnly:=True)
+
+    If Err.Number <> 0 Then
+        openErrNum = Err.Number
+        openErrDesc = Err.Description
+        Err.Clear
+    End If
+
+    On Error GoTo ImportErrHandler
+
+    If srcWb Is Nothing Then
+        MsgBox "Could not open file." & vbCrLf & vbCrLf & _
+               "Error " & openErrNum & ": " & openErrDesc, _
+               vbExclamation, "Import Failed"
+        GoTo ImportCleanExit
+    End If
+
+    Dim srcWs As Worksheet
+    Set srcWs = srcWb.Sheets(1)
+
+    If srcWs Is Nothing Then
+        srcWb.Close False
+        MsgBox "Could not read first sheet in file.", vbExclamation, "Import Failed"
+        GoTo ImportCleanExit
+    End If
+
+    Dim requiredHeaders As Variant
+    requiredHeaders = Array( _
+        "Interval Type Code", _
+        "Life Remaining", _
+        "Task Code", _
+        "Task Sequence", _
+        "Task Description", _
+        "Serial", _
+        "Actual Interval", _
+        "Extension", _
+        "Projected Due Date", _
+        "End Item Serial" _
+    )
+    
+    Dim failReason As String
+    Dim headerRow As Long
+    
+    headerRow = FindHeaderRow(srcWs, requiredHeaders, failReason)
+    
+    If headerRow = 0 Then
+        srcWb.Close False
+        MsgBox "Import failed for " & tail & "." & Chr(10) & Chr(10) & failReason, _
+               vbExclamation, "Import Failed"
+        GoTo ImportCleanExit
+    End If
+    
+    Dim colMap As Object
+    Set colMap = BuildHeaderMap(srcWs, headerRow, requiredHeaders, failReason)
+    
+    If colMap Is Nothing Then
+        srcWb.Close False
+        MsgBox "Import failed for " & tail & "." & Chr(10) & Chr(10) & failReason, _
+               vbExclamation, "Import Failed"
+        GoTo ImportCleanExit
+    End If
+    
+    Dim srcLR As Long
+    srcLR = LastUsedRowAnyColumn(srcWs)
+    
+    Dim sr As Long
+    sr = headerRow + 1
+    
+    If srcLR < sr Then
+        srcWb.Close False
+        MsgBox "Import failed for " & tail & "." & Chr(10) & Chr(10) & _
+               "The file contains headers but no task rows.", _
+               vbExclamation, "Import Failed"
+        GoTo ImportCleanExit
+    End If
+    
+    ' ---- Validate End Item Serial before overwriting existing import data ----
+    Dim endItemCol As Long
+    endItemCol = CLng(colMap("End Item Serial"))
+
+    Dim mismatches As String
+    Dim mismatchCount As Long
+    Dim validRows As Long
+    Dim sourceSerial As String
+    Dim expectedTail As String
+    Dim parsedProjectedDue As Variant
+    Dim typeVal As String
+    Dim taskCode As String
+
+    expectedTail = NormaliseTailText(tail)
+
+    Dim r As Long
+
+    For r = sr To srcLR
+
+        ' Skip completely blank rows based on Task Code and Interval Type.
+        If Len(Trim(CStr(srcWs.Cells(r, colMap("Task Code")).Value))) > 0 Or _
+           Len(Trim(CStr(srcWs.Cells(r, colMap("Interval Type Code")).Value))) > 0 Then
+
+            validRows = validRows + 1
+            sourceSerial = NormaliseTailText(CStr(srcWs.Cells(r, endItemCol).Value))
+
+            If Len(sourceSerial) = 0 Then
+                mismatchCount = mismatchCount + 1
+                If mismatchCount <= 10 Then
+                    mismatches = mismatches & "Row " & r & ": blank End Item Serial" & Chr(10)
+                End If
+
+            ElseIf sourceSerial <> expectedTail Then
+                mismatchCount = mismatchCount + 1
+                If mismatchCount <= 10 Then
+                    mismatches = mismatches & "Row " & r & ": End Item Serial '" & _
+                                 CStr(srcWs.Cells(r, endItemCol).Value) & _
+                                 "' does not match '" & tail & "'" & Chr(10)
+                End If
+            End If
+
+        End If
+
+    Next r
+
+    If validRows = 0 Then
+        srcWb.Close False
+        MsgBox "Import failed for " & tail & "." & Chr(10) & Chr(10) & _
+               "No task rows were found below the header row.", _
+               vbExclamation, "Import Failed"
+        GoTo ImportCleanExit
+    End If
+
+    If mismatchCount > 0 Then
+        srcWb.Close False
+
+        If mismatchCount > 10 Then
+            mismatches = mismatches & "...and " & CStr(mismatchCount - 10) & " more mismatch(es)." & Chr(10)
+        End If
+
+        MsgBox "Import failed for " & tail & "." & Chr(10) & Chr(10) & _
+               "The End Item Serial column does not match the selected aircraft." & Chr(10) & Chr(10) & _
+               mismatches, _
+               vbExclamation, "Import Failed"
+        GoTo ImportCleanExit
+    End If
+
+    If ImportRowHasTaskData(impWs, IMPORT_FIRST_DATA_ROW) Then
+
+        If MsgBox("Overwrite existing data?", vbYesNo + vbExclamation, "Import Tasks") = vbNo Then
+            srcWb.Close False
+            GoTo ImportCleanExit
+        End If
+
+        ClearImportData impWs
+    End If
+
+    ' ---- Copy source columns into fixed internal layout ----
+    Dim destinationRow As Long
+    Dim importedRows As Long
+    Dim truncated As Boolean
+    Dim skippedRows As Long
+
+    destinationRow = IMPORT_FIRST_DATA_ROW
+
+    For r = sr To srcLR
+
+        ' Skip completely blank rows based on Task Code and Interval Type.
+        If Len(Trim(CStr(srcWs.Cells(r, colMap("Task Code")).Value))) = 0 And _
+           Len(Trim(CStr(srcWs.Cells(r, colMap("Interval Type Code")).Value))) = 0 Then
+        ElseIf destinationRow > IMPORT_LAST_DATA_ROW Then
+            truncated = True
+            skippedRows = skippedRows + 1
+        Else
+            impWs.Cells(destinationRow, IMPORT_COL_INTERVAL_TYPE).Value = _
+                srcWs.Cells(r, colMap("Interval Type Code")).Value
+
+            impWs.Cells(destinationRow, IMPORT_COL_LIFE_REMAINING).Value = _
+                srcWs.Cells(r, colMap("Life Remaining")).Value
+
+            impWs.Cells(destinationRow, IMPORT_COL_TASK_CODE).Value = _
+                srcWs.Cells(r, colMap("Task Code")).Value
+
+            impWs.Cells(destinationRow, IMPORT_COL_TASK_SEQUENCE).Value = _
+                srcWs.Cells(r, colMap("Task Sequence")).Value
+
+            impWs.Cells(destinationRow, IMPORT_COL_TASK_DESCRIPTION).Value = _
+                srcWs.Cells(r, colMap("Task Description")).Value
+
+            impWs.Cells(destinationRow, IMPORT_COL_SERIAL).Value = _
+                srcWs.Cells(r, colMap("Serial")).Value
+
+            impWs.Cells(destinationRow, IMPORT_COL_ACTUAL_INTERVAL).Value = _
+                srcWs.Cells(r, colMap("Actual Interval")).Value
+
+            impWs.Cells(destinationRow, IMPORT_COL_EXTENSION).Value = _
+                srcWs.Cells(r, colMap("Extension")).Value
+
+            parsedProjectedDue = ParseDMYDateValue( _
+                srcWs.Cells(r, colMap("Projected Due Date")).Value, _
+                srcWs.Cells(r, colMap("Projected Due Date")).Text _
+            )
+
+            If IsDate(parsedProjectedDue) Then
+                impWs.Cells(destinationRow, IMPORT_COL_PROJECTED_DUE_DATE).Value = CDate(parsedProjectedDue)
+                impWs.Cells(destinationRow, IMPORT_COL_PROJECTED_DUE_DATE).NumberFormat = "DD/MM/YYYY"
+            Else
+                impWs.Cells(destinationRow, IMPORT_COL_PROJECTED_DUE_DATE).Value = vbNullString
+            End If
+
+            impWs.Cells(destinationRow, IMPORT_COL_END_ITEM_SERIAL).Value = _
+                srcWs.Cells(r, colMap("End Item Serial")).Value
+
+            importedRows = importedRows + 1
+            destinationRow = destinationRow + 1
+        End If
+
+    Next r
+
+    ' ---- Set Show? (col A) based on Interval Type Code (col B) ----
+    Dim ir As Long
+    For ir = IMPORT_FIRST_DATA_ROW To IMPORT_LAST_DATA_ROW
+
+        typeVal = UCase(Trim(CStr(impWs.Cells(ir, IMPORT_COL_INTERVAL_TYPE).Value)))
+
+        If Len(typeVal) > 0 Then
+            Select Case typeVal
+                Case "E1", "E2", "HH", "AF", "HRS", "DD", "CAL", "C"
+                    taskCode = UCase(Trim(CStr(impWs.Cells(ir, IMPORT_COL_TASK_CODE).Value)))
+
+                    If Left$(taskCode, 3) = "PT2" Or Left$(taskCode, 3) = "PT3" Then
+                        impWs.Cells(ir, IMPORT_COL_SHOW).Value = "N"
+                    Else
+                        impWs.Cells(ir, IMPORT_COL_SHOW).Value = "Y"
+                    End If
+                Case Else
+                    impWs.Cells(ir, IMPORT_COL_SHOW).Value = "N"
+            End Select
+        End If
+
+    Next ir
+
+    impWs.Range( _
+        impWs.Cells(IMPORT_FIRST_DATA_ROW, IMPORT_COL_PROJECTED_DUE_DATE), _
+        impWs.Cells(IMPORT_LAST_DATA_ROW, IMPORT_COL_PROJECTED_DUE_DATE) _
+    ).NumberFormat = "DD/MM/YYYY"
+
+    srcWb.Close False
+    
+    StampLastImportTime impWs
+    ClearChartImportWarningShown tail
+
+ImportSuccessExit:
+    EndFastMode
+
+    Dim importMessage As String
+    importMessage = "Imported " & importedRows & " tasks for " & tail & "."
+
+    If truncated Then
+        importMessage = importMessage & Chr(10) & Chr(10) & _
+                        skippedRows & " task row(s) were not imported because the import sheet limit is " & _
+                        IMPORT_MAX_DATA_ROWS & " rows." & Chr(10) & _
+                        "Reduce the source file or contact support if you need a higher limit."
+    End If
+
+    If MsgBox(importMessage & Chr(10) & Chr(10) & "Refresh now?", _
+              vbYesNo + IIf(truncated, vbExclamation, vbQuestion), "Import Complete") = vbYes Then RefreshAll
+    Exit Sub
+
+ImportCleanExit:
+    EndFastMode
+    Exit Sub
+
+ImportErrHandler:
+    On Error Resume Next
+    If Not srcWb Is Nothing Then srcWb.Close False
+    On Error GoTo 0
+    EndFastMode
+    MsgBox "Import failed for " & tail & "." & Chr(10) & Chr(10) & _
+           "Error " & Err.Number & ": " & Err.Description, _
+           vbExclamation, "Import Failed"
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Clears per-session chart import warnings shown on sheet activation.
+'------------------------------------------------------------------------------
+Public Sub ResetChartImportWarningSession()
+
+    Set mChartImportWarningsShown = Nothing
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Allows a fresh chart-sheet warning after an aircraft is re-imported.
+' Input : tailNumber - aircraft tail number.
+'------------------------------------------------------------------------------
+Public Sub ClearChartImportWarningShown(ByVal tailNumber As String)
+
+    If mChartImportWarningsShown Is Nothing Then Exit Sub
+
+    If mChartImportWarningsShown.Exists(tailNumber) Then
+        mChartImportWarningsShown.Remove tailNumber
+    End If
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Prompts once per session when a chart sheet with stale import is opened.
+' Input : ws - activated worksheet.
+'------------------------------------------------------------------------------
+Public Sub HandleChartSheetActivate(ByVal ws As Worksheet)
+
+    If Right$(ws.Name, Len(CHART_SHEET_SUFFIX)) <> CHART_SHEET_SUFFIX Then Exit Sub
+
+    Dim tailNumber As String
+    tailNumber = Left$(ws.Name, Len(ws.Name) - Len(CHART_SHEET_SUFFIX))
+
+    If Len(Trim$(tailNumber)) = 0 Then Exit Sub
+
+    Dim importSheetName As String
+    importSheetName = tailNumber & IMPORT_SHEET_SUFFIX
+
+    If Not SheetExists(importSheetName) Then Exit Sub
+
+    Dim importWs As Worksheet
+    Set importWs = ThisWorkbook.Worksheets(importSheetName)
+
+    If IsImportCurrentWeek(importWs) Then Exit Sub
+    If ChartImportWarningAlreadyShown(tailNumber) Then Exit Sub
+
+    MarkChartImportWarningShown tailNumber
+
+    Dim warningMessage As String
+    Dim lastImport As Variant
+    lastImport = GetLastImportTime(importWs)
+
+    If IsEmpty(lastImport) Or Not IsDate(lastImport) Then
+        warningMessage = "No SITS data has been imported for " & tailNumber & "."
+    Else
+        warningMessage = "SITS data for " & tailNumber & " is from " & _
+                         Format$(CDate(lastImport), "DD/MM/YYYY") & " (previous week)."
+    End If
+
+    MsgBox warningMessage & vbCrLf & vbCrLf & _
+           "Use Reimport SITS to load the current export.", _
+           vbExclamation, "Import Out of Date"
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Reimports task data from a dashboard Reimport button.
+' Input : None. Uses Application.Caller to identify the aircraft tail number.
+' Output : Calls ImportTaskData for the selected aircraft.
+'------------------------------------------------------------------------------
+Public Sub ReimportFromDashboardButton()
+
+    On Error GoTo ErrHandler
+
+    Dim callerName As String
+    callerName = CStr(Application.Caller)
+
+    Dim dashboardWs As Worksheet
+    Set dashboardWs = GetDashboardWorksheet()
+
+    Dim dashboardButton As Shape
+    Set dashboardButton = dashboardWs.Shapes(callerName)
+
+    Dim dashboardRow As Long
+    dashboardRow = dashboardButton.TopLeftCell.Row
+
+    If dashboardRow <= DASHBOARD_HEADER_ROW Then
+        MsgBox "Could not identify the aircraft from this dashboard button.", _
+               vbExclamation, "Reimport"
+        Exit Sub
+    End If
+
+    Dim tailNumber As String
+    tailNumber = Trim$(CStr(dashboardWs.Cells(dashboardRow, 1).Value))
+
+    If Len(tailNumber) = 0 Then
+        MsgBox "Could not identify the aircraft tail number from this dashboard button.", _
+               vbExclamation, "Reimport"
+        Exit Sub
+    End If
+
+    ImportTaskData tailNumber
+
+    Exit Sub
+
+ErrHandler:
+    MsgBox "Reimport failed: " & Err.Number & " - " & Err.Description, _
+           vbExclamation, "Reimport"
+
+End Sub
+
+
+Private Function ChartImportWarningAlreadyShown(ByVal tailNumber As String) As Boolean
+
+    If mChartImportWarningsShown Is Nothing Then Exit Function
+
+    ChartImportWarningAlreadyShown = mChartImportWarningsShown.Exists(tailNumber)
+
+End Function
+
+
+Private Sub MarkChartImportWarningShown(ByVal tailNumber As String)
+
+    If mChartImportWarningsShown Is Nothing Then
+        Set mChartImportWarningsShown = CreateObject("Scripting.Dictionary")
+    End If
+
+    mChartImportWarningsShown(tailNumber) = True
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Reimports task data for the aircraft associated with the active chart sheet.
+' Input : None. Uses ActiveSheet and Application.Caller context.
+' Output : Calls ImportTaskData for the chart sheet aircraft.
+'------------------------------------------------------------------------------
+Public Sub ReimportFromChartButton()
+
+    Dim btnSheet As Worksheet
+    Dim tail As String
+
+    On Error GoTo ErrHandler
+
+    Set btnSheet = ActiveSheet
+
+    If Right(btnSheet.Name, 6) <> CHART_SHEET_SUFFIX Then
+        MsgBox "This button must be used from an aircraft chart sheet.", _
+               vbExclamation, "Reimport"
+        Exit Sub
+    End If
+
+    tail = Left(btnSheet.Name, Len(btnSheet.Name) - 6)
+
+    If Len(Trim(tail)) = 0 Then
+        MsgBox "Could not identify the aircraft tail number from this chart sheet.", _
+               vbExclamation, "Reimport"
+        Exit Sub
+    End If
+
+    ImportTaskData tail
+
+    Exit Sub
+
+ErrHandler:
+    MsgBox "Reimport failed: " & Err.Number & " - " & Err.Description, _
+           vbExclamation, "Reimport"
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Finds the row containing all required import headers.
+' Input : srcWs - source worksheet to scan.
+' requiredHeaders - array of required header captions.
+' failReason - returned explanation if no valid header row is found.
+' Output : Header row number, or 0 if not found.
+'------------------------------------------------------------------------------
+Private Function FindHeaderRow(srcWs As Worksheet, requiredHeaders As Variant, ByRef failReason As String) As Long
+
+    Dim testRow As Long
+    Dim lastCol As Long
+    Dim c As Long
+    Dim foundCount As Long
+    Dim h As Variant
+    Dim cellHeader As String
+    Dim requiredHeader As String
+
+    For testRow = 1 To 10
+
+        lastCol = srcWs.Cells(testRow, srcWs.Columns.Count).End(xlToLeft).Column
+        foundCount = 0
+
+        For Each h In requiredHeaders
+
+            requiredHeader = NormaliseHeaderText(CStr(h))
+
+            For c = 1 To lastCol
+                cellHeader = NormaliseHeaderText(CStr(srcWs.Cells(testRow, c).Value))
+
+                If cellHeader = requiredHeader Then
+                    foundCount = foundCount + 1
+                    Exit For
+                End If
+            Next c
+
+        Next h
+
+        If foundCount = UBound(requiredHeaders) - LBound(requiredHeaders) + 1 Then
+            FindHeaderRow = testRow
+            Exit Function
+        End If
+
+    Next testRow
+
+    failReason = "Could not find a header row containing all required columns in the first 10 rows."
+    FindHeaderRow = 0
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds a dictionary mapping required header names to source column numbers.
+' Input : srcWs - source worksheet.
+' headerRow - row containing import headers.
+' requiredHeaders - array of required header captions.
+' failReason - returned explanation if required columns are missing.
+' Output : Scripting.Dictionary of header name to column number, or Nothing on failure.
+'------------------------------------------------------------------------------
+Private Function BuildHeaderMap(srcWs As Worksheet, headerRow As Long, requiredHeaders As Variant, ByRef failReason As String) As Object
+
+    Dim dict As Object
+    Set dict = CreateObject("Scripting.Dictionary")
+
+    Dim lastCol As Long
+    lastCol = srcWs.Cells(headerRow, srcWs.Columns.Count).End(xlToLeft).Column
+
+    Dim c As Long
+    Dim h As Variant
+    Dim sourceHeader As String
+    Dim requiredHeader As String
+    Dim missing As String
+
+    For Each h In requiredHeaders
+
+        requiredHeader = NormaliseHeaderText(CStr(h))
+
+        For c = 1 To lastCol
+
+            sourceHeader = NormaliseHeaderText(CStr(srcWs.Cells(headerRow, c).Value))
+
+            If sourceHeader = requiredHeader Then
+                dict(CStr(h)) = c
+                Exit For
+            End If
+
+        Next c
+
+        If Not dict.Exists(CStr(h)) Then
+            If Len(missing) > 0 Then missing = missing & ", "
+            missing = missing & CStr(h)
+        End If
+
+    Next h
+
+    If Len(missing) > 0 Then
+        failReason = "The imported file is missing required column(s): " & missing
+        Set BuildHeaderMap = Nothing
+    Else
+        Set BuildHeaderMap = dict
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Finds the last used row on a worksheet across all columns.
+' Input : ws - worksheet to inspect.
+' Output : Last used row number, or 0 if the sheet is empty.
+'------------------------------------------------------------------------------
+Private Function LastUsedRowAnyColumn(ws As Worksheet) As Long
+
+    Dim lastCell As Range
+
+    On Error Resume Next
+    Set lastCell = ws.Cells.Find(What:="*", _
+                                 After:=ws.Range("A1"), _
+                                 LookIn:=xlFormulas, _
+                                 LookAt:=xlPart, _
+                                 SearchOrder:=xlByRows, _
+                                 SearchDirection:=xlPrevious)
+    On Error GoTo 0
+
+    If lastCell Is Nothing Then
+        LastUsedRowAnyColumn = 0
+    Else
+        LastUsedRowAnyColumn = lastCell.Row
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Parses a UK-format date value from imported data.
+' Input : rawVal - underlying cell value.
+' displayText - optional displayed cell text, used to preserve DD/MM/YYYY interpretation.
+' Output : Date value if valid, otherwise Empty.
+'------------------------------------------------------------------------------
+Public Function ParseDMYDateValue(rawVal As Variant, Optional displayText As String = "") As Variant
+
+    Dim s As String
+    Dim p() As String
+    Dim d As Long
+    Dim m As Long
+    Dim y As Long
+    Dim parsedDate As Date
+
+    s = Trim(CStr(displayText))
+
+    If Len(s) > 0 And s <> "#####" Then
+
+        If InStr(s, " ") > 0 Then s = Left(s, InStr(s, " ") - 1)
+
+        s = Replace(s, "-", "/")
+        s = Replace(s, ".", "/")
+
+        If InStr(s, "/") > 0 Then
+            p = Split(s, "/")
+
+            If UBound(p) = 2 Then
+                If IsNumeric(p(0)) And IsNumeric(p(1)) And IsNumeric(p(2)) Then
+
+                    d = CLng(p(0))
+                    m = CLng(p(1))
+                    y = CLng(p(2))
+
+                    If y < 100 Then y = 2000 + y
+
+                    On Error Resume Next
+                    parsedDate = DateSerial(y, m, d)
+                    On Error GoTo 0
+
+                    If Day(parsedDate) = d And Month(parsedDate) = m And Year(parsedDate) = y Then
+                        ParseDMYDateValue = parsedDate
+                        Exit Function
+                    End If
+
+                End If
+            End If
+        End If
+    End If
+
+    If IsDate(rawVal) Then
+        ParseDMYDateValue = DateValue(CDate(rawVal))
+    Else
+        ParseDMYDateValue = Empty
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Normalises a header caption for tolerant comparison.
+' Input : headerText - header text to clean.
+' Output : Uppercase text with spaces and punctuation removed.
+'------------------------------------------------------------------------------
+Private Function NormaliseHeaderText(headerText As String) As String
+
+    Dim s As String
+    s = UCase(Trim(CStr(headerText)))
+
+    s = Replace(s, " ", "")
+    s = Replace(s, "_", "")
+    s = Replace(s, "-", "")
+    s = Replace(s, "/", "")
+    s = Replace(s, "\", "")
+    s = Replace(s, ".", "")
+    s = Replace(s, ":", "")
+    s = Replace(s, "?", "")
+
+    NormaliseHeaderText = s
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Normalises an aircraft tail/end-item serial for comparison.
+' Input : tailText - tail number or serial text.
+' Output : Uppercase text with spaces, hyphens, and underscores removed.
+'------------------------------------------------------------------------------
+Private Function NormaliseTailText(tailText As String) As String
+
+    Dim s As String
+    s = UCase(Trim(CStr(tailText)))
+
+    s = Replace(s, " ", "")
+    s = Replace(s, "-", "")
+    s = Replace(s, "_", "")
+
+    NormaliseTailText = s
+
+End Function

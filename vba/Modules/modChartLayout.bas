@@ -1,0 +1,314 @@
+Attribute VB_Name = "modChartLayout"
+Option Explicit
+
+'------------------------------------------------------------------------------
+' Module : modChartLayout
+' Purpose : Handles aircraft chart clearing, fixed headers, week headers,
+' comments, and common chart layout formatting.
+'------------------------------------------------------------------------------
+
+Public Const CHART_TITLE_CELL As String = "A1"
+Public Const CHART_STATUS_CELL As String = "A2"
+Public Const CHART_IMPORT_WARNING_CELL As String = "D1"
+
+Public Const CHART_HEADER_ROW As Long = 3
+Public Const CHART_DATE_ROW As Long = 4
+Public Const CHART_FIRST_TASK_ROW As Long = 5
+
+Public Const CHART_COL_TYPE As Long = 1
+Public Const CHART_COL_INTERVAL As Long = 2
+Public Const CHART_COL_DESCRIPTION As Long = 3
+Public Const CHART_FIRST_WEEK_COL As Long = 4
+
+Public Const CHART_HEADER_BLUE As Long = 9851952 ' RGB(47, 84, 150)
+
+Public Const CHART_TYPE_COL_WIDTH As Double = 15
+Public Const CHART_INTERVAL_COL_WIDTH As Double = 15
+Public Const CHART_DESCRIPTION_COL_WIDTH As Double = 15
+Public Const CHART_WEEK_COL_WIDTH As Double = 6
+
+
+'------------------------------------------------------------------------------
+' Purpose : Clears the reusable output area of an aircraft chart sheet.
+' Input : chartWs - aircraft chart worksheet.
+' Notes : Removes old comments, merged cells, contents, fills, and borders.
+'------------------------------------------------------------------------------
+Public Sub ClearAircraftChartOutput(ByVal chartWs As Worksheet)
+
+    Dim lastUsedRow As Long
+    lastUsedRow = chartWs.Cells(chartWs.Rows.Count, CHART_COL_TYPE).End(xlUp).Row
+
+    If lastUsedRow < CHART_FIRST_TASK_ROW Then
+        lastUsedRow = CHART_FIRST_TASK_ROW
+    End If
+
+    Dim lastUsedColumn As Long
+    lastUsedColumn = chartWs.Cells(CHART_HEADER_ROW, chartWs.Columns.Count).End(xlToLeft).Column
+
+    If lastUsedColumn < CHART_FIRST_WEEK_COL Then
+        lastUsedColumn = CHART_FIRST_WEEK_COL
+    End If
+
+    Dim clearRange As Range
+    Set clearRange = chartWs.Range( _
+        chartWs.Cells(CHART_HEADER_ROW, CHART_COL_TYPE), _
+        chartWs.Cells(lastUsedRow + 10, lastUsedColumn + 5))
+
+    ClearCommentsInRange clearRange
+
+    On Error Resume Next
+    clearRange.UnMerge
+    On Error GoTo 0
+
+    clearRange.ClearContents
+    clearRange.Interior.ColorIndex = xlNone
+
+    With clearRange.Borders
+        .LineStyle = xlNone
+        .ColorIndex = xlNone
+    End With
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Writes fixed labels on the left side of an aircraft chart.
+' Input : chartWs - aircraft chart worksheet.
+' tailNumber - aircraft tail number.
+' totalImported - count of imported task rows.
+' totalShown - count of rows shown in planner.
+'------------------------------------------------------------------------------
+Public Sub WriteAircraftChartFixedHeaders(ByVal chartWs As Worksheet, _
+                                          ByVal tailNumber As String, _
+                                          ByVal totalImported As Long, _
+                                          ByVal totalShown As Long)
+
+    With chartWs
+
+        With .Range(CHART_TITLE_CELL).Font
+            .Name = "Arial"
+            .Size = 14
+            .Bold = True
+            .Color = RGB(0, 0, 0)
+        End With
+
+        With .Range(CHART_STATUS_CELL).Font
+            .Name = "Arial"
+            .Size = 9
+            .Bold = False
+            .Color = RGB(0, 0, 0)
+        End With
+
+        .Cells(CHART_HEADER_ROW, CHART_COL_TYPE).Value = "Type"
+        .Cells(CHART_HEADER_ROW, CHART_COL_INTERVAL).Value = "Interval"
+        .Cells(CHART_HEADER_ROW, CHART_COL_DESCRIPTION).Value = "Description"
+
+        With .Range( _
+            .Cells(CHART_HEADER_ROW, CHART_COL_TYPE), _
+            .Cells(CHART_DATE_ROW, CHART_COL_DESCRIPTION))
+
+            .Font.Name = "Arial"
+            .Font.Size = 9
+            .Font.Bold = True
+            .Font.Color = RGB(255, 255, 255)
+            .Interior.Color = CHART_HEADER_BLUE
+            .HorizontalAlignment = xlCenter
+            .VerticalAlignment = xlCenter
+            .WrapText = False
+
+            With .Borders
+                .LineStyle = xlContinuous
+                .Color = RGB(200, 200, 200)
+                .Weight = xlThin
+            End With
+
+        End With
+
+        .Columns(CHART_COL_TYPE).ColumnWidth = CHART_TYPE_COL_WIDTH
+        .Columns(CHART_COL_INTERVAL).ColumnWidth = CHART_INTERVAL_COL_WIDTH
+        .Columns(CHART_COL_DESCRIPTION).ColumnWidth = CHART_DESCRIPTION_COL_WIDTH
+
+        .Rows(CHART_HEADER_ROW).RowHeight = 30
+        .Rows(CHART_DATE_ROW).RowHeight = 20
+
+    End With
+
+End Sub
+
+'------------------------------------------------------------------------------
+' Purpose : Writes the visible week headers for an aircraft chart.
+' Input : chartWs - aircraft chart worksheet.
+' settings - validated planner settings.
+' weekStartDates - visible planner week start dates.
+' weekCyclePositions - weekly cycle positions for this aircraft.
+' isDownMaintenance - True when aircraft is long-term down.
+' rtsFlyStart - first Monday after ETBOL/RTS.
+'------------------------------------------------------------------------------
+Public Sub WriteAircraftChartWeekHeaders(ByVal chartWs As Worksheet, _
+                                         ByRef settings As PlannerSettings, _
+                                         ByRef weekStartDates() As Date, _
+                                         ByRef weekCyclePositions() As Long, _
+                                         ByVal isDownMaintenance As Boolean, _
+                                         ByVal rtsFlyStart As Date)
+
+    Dim weekIndex As Long
+
+    For weekIndex = 1 To settings.displayWeeksShown
+
+        Dim targetColumn As Long
+        targetColumn = CHART_FIRST_WEEK_COL + weekIndex - 1
+
+        chartWs.Columns(targetColumn).ColumnWidth = CHART_WEEK_COL_WIDTH
+
+        WriteChartWeekLabel _
+            chartWs.Cells(CHART_HEADER_ROW, targetColumn), _
+            settings, _
+            weekStartDates, _
+            weekCyclePositions, _
+            weekIndex, _
+            isDownMaintenance, _
+            rtsFlyStart
+
+        WriteChartWeekDate _
+            chartWs.Cells(CHART_DATE_ROW, targetColumn), _
+            weekStartDates(weekIndex)
+
+    Next weekIndex
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Writes and formats one chart week label cell.
+'------------------------------------------------------------------------------
+Private Sub WriteChartWeekLabel(ByVal targetCell As Range, _
+                                ByRef settings As PlannerSettings, _
+                                ByRef weekStartDates() As Date, _
+                                ByRef weekCyclePositions() As Long, _
+                                ByVal weekIndex As Long, _
+                                ByVal isDownMaintenance As Boolean, _
+                                ByVal rtsFlyStart As Date)
+
+    With targetCell
+
+        If isDownMaintenance And weekStartDates(weekIndex) < rtsFlyStart Then
+            .Value = "Down"
+        ElseIf weekIndex <= settings.WeeksBeforeForecastStart Then
+            .Value = "Pre Wk " & CStr(weekIndex)
+        Else
+            .Value = FormatCyclePositionText( _
+                weekCyclePositions(weekIndex), _
+                settings.flyingWeeks)
+        End If
+
+        .Font.Name = "Arial"
+        .Font.Size = 8
+        .Font.Bold = True
+        .Font.Color = RGB(0, 0, 0)
+
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlCenter
+        .WrapText = True
+
+        ApplyChartRotationHeaderFill _
+            targetCell, _
+            weekCyclePositions(weekIndex), _
+            settings.flyingWeeks
+
+        With .Borders
+            .LineStyle = xlContinuous
+            .Color = RGB(200, 200, 200)
+            .Weight = xlThin
+        End With
+
+    End With
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Writes and formats one chart week date cell.
+'------------------------------------------------------------------------------
+Private Sub WriteChartWeekDate(ByVal targetCell As Range, _
+                               ByVal weekStartDate As Date)
+
+    With targetCell
+        .Value = weekStartDate
+        .NumberFormat = "DD/MM"
+
+        .Font.Name = "Arial"
+        .Font.Size = 8
+        .Font.Bold = False
+        .Font.Color = RGB(0, 0, 0)
+
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlCenter
+        .WrapText = False
+
+        With .Borders
+            .LineStyle = xlContinuous
+            .Color = RGB(200, 200, 200)
+            .Weight = xlThin
+        End With
+
+    End With
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Applies colour to a chart week header based on cycle position.
+'------------------------------------------------------------------------------
+Private Sub ApplyChartRotationHeaderFill(ByVal targetCell As Range, _
+                                         ByVal cyclePosition As Long, _
+                                         ByVal flyingWeeks As Long)
+
+    If cyclePosition <= flyingWeeks Then
+
+        Select Case cyclePosition
+
+            Case 1
+                targetCell.Interior.Color = CLR_FLY1
+
+            Case 2
+                targetCell.Interior.Color = CLR_FLY2
+
+            Case 3
+                targetCell.Interior.Color = CLR_FLY3
+
+            Case Else
+                targetCell.Interior.Color = CLR_FLY1
+
+        End Select
+
+    Else
+
+        targetCell.Interior.Color = CLR_DOWN
+
+    End If
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Clears comments from every cell in a range.
+'------------------------------------------------------------------------------
+Private Sub ClearCommentsInRange(ByVal targetRange As Range)
+
+    Dim targetCell As Range
+
+    For Each targetCell In targetRange.Cells
+
+        On Error Resume Next
+
+        If Not targetCell.Comment Is Nothing Then
+            targetCell.Comment.Delete
+        End If
+
+        On Error GoTo 0
+
+    Next targetCell
+
+End Sub
+
+

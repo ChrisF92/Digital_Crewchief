@@ -1,0 +1,428 @@
+Attribute VB_Name = "modAircraftAdmin"
+Option Explicit
+
+'------------------------------------------------------------------------------
+' Module : modAircraftAdmin
+' Purpose : Aircraft roster administration, import detection, and manager form entry points.
+'------------------------------------------------------------------------------
+
+'------------------------------------------------------------------------------
+' Purpose : Prompts the user to select an aircraft from the Rotation sheet.
+' Input   : prompt - message shown above the aircraft list.
+' Output  : Selected tail number, or blank if the user cancels/enters invalid data.
+'------------------------------------------------------------------------------
+Public Function PickAircraft(ByVal prompt As String) As String
+
+    Dim rotationWs As Worksheet
+    Set rotationWs = ThisWorkbook.Worksheets("Rotation")
+
+    Dim maxSlots As Long
+    maxSlots = GetNamedLong("MaxAircraftSlots")
+
+    Dim aircraftList As String
+    Dim aircraftNumbers() As String
+    Dim aircraftCount As Long
+    Dim tailNumber As String
+    Dim slotIndex As Long
+
+    ReDim aircraftNumbers(1 To maxSlots)
+
+    For slotIndex = 1 To maxSlots
+
+        tailNumber = Trim$(CStr(rotationWs.Cells(GetRotationRowForSlot(slotIndex), 2).Value))
+
+        If Len(tailNumber) > 0 Then
+            aircraftCount = aircraftCount + 1
+            aircraftNumbers(aircraftCount) = tailNumber
+            aircraftList = aircraftList & aircraftCount & " = " & tailNumber & vbCrLf
+        End If
+
+    Next slotIndex
+
+    If aircraftCount = 0 Then
+        PickAircraft = vbNullString
+        Exit Function
+    End If
+
+    Dim userChoice As String
+    userChoice = InputBox(prompt & vbCrLf & vbCrLf & _
+                          aircraftList & vbCrLf & _
+                          "Enter number:", _
+                          "Select Aircraft")
+
+    If Len(Trim$(userChoice)) = 0 Then
+        PickAircraft = vbNullString
+        Exit Function
+    End If
+
+    If Not IsNumeric(userChoice) Then
+        PickAircraft = vbNullString
+        Exit Function
+    End If
+
+    Dim selectedIndex As Long
+    selectedIndex = CLng(userChoice)
+
+    If selectedIndex < 1 Or selectedIndex > aircraftCount Then
+        PickAircraft = vbNullString
+        Exit Function
+    End If
+
+    PickAircraft = aircraftNumbers(selectedIndex)
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Guides the user through adding a new aircraft to the planner.
+' Input : None. Uses Rotation and named settings values.
+' Output : Returns the added tail number, or blank if the user cancels or add fails.
+'------------------------------------------------------------------------------
+Public Function AddAircraftWizard() As String
+
+    AddAircraftWizard = vbNullString
+
+    Dim rotWs As Worksheet
+    Set rotWs = ThisWorkbook.Worksheets("Rotation")
+    
+    Dim maxSlots As Long
+    maxSlots = GetNamedLong("MaxAircraftSlots")
+
+    Dim NextSlot As Long
+    Dim currentCount As Long
+    Dim s As Long
+
+    NextSlot = GetNextRotationSlotForAdd(maxSlots)
+
+    currentCount = 0
+
+    For s = 1 To maxSlots
+        If Trim(CStr(rotWs.Cells(GetRotationRowForSlot(s), 2).Value)) <> "" Then
+            currentCount = currentCount + 1
+        End If
+    Next s
+
+    If NextSlot = 0 Then
+        MsgBox "All " & maxSlots & " slots filled.", vbExclamation, "No Slots"
+        Exit Function
+    End If
+
+    Dim tail As String
+    tail = UCase(Trim(InputBox("STEP 1 of 3: Tail number (" & currentCount & "/" & maxSlots & " used)." & _
+        Chr(10) & "Example: ZZ383", "Add Aircraft")))
+
+    If tail = "" Then Exit Function
+
+    For s = 1 To maxSlots
+        If UCase(Trim(CStr(rotWs.Cells(GetRotationRowForSlot(s), 2).Value))) = tail Then
+            MsgBox tail & " already exists.", vbExclamation, "Duplicate"
+            Exit Function
+        End If
+    Next s
+
+    Dim cycleLength As Long
+    cycleLength = GetNamedLong("FlyingWeeks") + GetNamedLong("MaintenanceWeeks")
+    
+    Dim flyingWeeks As Long
+    flyingWeeks = GetNamedLong("FlyingWeeks")
+    
+    Dim cyclePrompt As String
+    
+    If flyingWeeks > 0 And cycleLength > flyingWeeks Then
+        cyclePrompt = "1-" & flyingWeeks & " = Flying, " & _
+                      flyingWeeks + 1 & "-" & cycleLength & " = Maintenance"
+    ElseIf flyingWeeks > 0 Then
+        cyclePrompt = "1-" & flyingWeeks & " = Flying"
+    Else
+        cyclePrompt = "1-" & cycleLength & " = Maintenance"
+    End If
+    
+    Dim cws As String
+    cws = InputBox("STEP 2 of 3: Cycle week at forecast start (1-" & cycleLength & ")." & _
+                   vbCrLf & cyclePrompt, _
+                   "Rotation", _
+                   "1")
+
+    If cws = "" Then Exit Function
+    If Not IsNumeric(cws) Then Exit Function
+
+    Dim cw As Long
+    cw = CLng(cws)
+
+    If cw < 1 Or cw > cycleLength Then
+        MsgBox "Cycle week must be between 1 and " & cycleLength & ".", _
+            vbExclamation, _
+            "Add Aircraft"
+        Exit Function
+    End If
+    
+
+    Application.ScreenUpdating = False
+
+    WriteNewAircraftRotationRow NextSlot, tail, cw
+
+    Dim impW As Worksheet
+    Set impW = CreateImportSheet(tail)
+
+    Dim chtW As Worksheet
+    Set chtW = CreateChartSheet(tail)
+
+    Application.ScreenUpdating = True
+
+    If MsgBox("Aircraft " & tail & " added. Import task file now?", _
+              vbYesNo + vbQuestion, "Add Aircraft") = vbYes Then
+        ImportTaskData tail
+    Else
+        impW.Activate
+        impW.Range("B2").Select
+    End If
+
+    AddAircraftWizard = tail
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Removes an aircraft and its related planner sheets after confirmation.
+' Input : Optional selectedTail â€” when supplied, removes that aircraft without the numbered picker.
+' Output : Deletes aircraft import/chart sheets, clears Rotation/Dashboard rows, then refreshes.
+'------------------------------------------------------------------------------
+Public Sub RemoveAircraft(Optional ByVal selectedTail As String = "")
+
+    Dim rotWs As Worksheet
+    Set rotWs = ThisWorkbook.Worksheets("Rotation")
+    
+    Dim maxSlots As Long
+    maxSlots = GetNamedLong("MaxAircraftSlots")
+
+    Dim acList As String
+    Dim aircraftCount As Long: aircraftCount = 0
+
+    Dim slotsArr() As Long
+    Dim tailsArr() As String
+
+    ReDim slotsArr(1 To maxSlots)
+    ReDim tailsArr(1 To maxSlots)
+
+    Dim s As Long
+
+    For s = 1 To maxSlots
+
+        Dim tn As String
+        tn = Trim(CStr(rotWs.Cells(GetRotationRowForSlot(s), 2).Value))
+
+        If Len(tn) > 0 Then
+
+            aircraftCount = aircraftCount + 1
+            slotsArr(aircraftCount) = s
+            tailsArr(aircraftCount) = tn
+
+            Dim tc As Long: tc = 0
+            Dim tw As Worksheet: Set tw = Nothing
+
+            On Error Resume Next
+            Set tw = ThisWorkbook.Sheets(tn & IMPORT_SHEET_SUFFIX)
+            On Error GoTo 0
+
+            If Not tw Is Nothing Then
+                Dim rr As Long
+                For rr = IMPORT_FIRST_DATA_ROW To IMPORT_LAST_DATA_ROW
+                    If ImportRowHasTaskData(tw, rr) Then
+                        tc = tc + 1
+                    End If
+                Next rr
+            End If
+
+            acList = acList & aircraftCount & " = " & tn & " (" & tc & " tasks)" & Chr(10)
+
+        End If
+
+    Next s
+
+    If aircraftCount = 0 Then
+        MsgBox "No aircraft found in Rotation.", vbInformation, "Remove Aircraft"
+        Exit Sub
+    End If
+
+    Dim selT As String
+    Dim selS As Long
+
+    selectedTail = Trim$(selectedTail)
+
+    If Len(selectedTail) > 0 Then
+
+        selT = UCase$(selectedTail)
+        selS = 0
+
+        For s = 1 To maxSlots
+            If StrComp(UCase$(Trim$(CStr(rotWs.Cells(GetRotationRowForSlot(s), 2).Value))), selT, vbTextCompare) = 0 Then
+                selS = s
+                Exit For
+            End If
+        Next s
+
+        If selS = 0 Then
+            MsgBox "Aircraft " & selectedTail & " was not found on the Rotation sheet.", _
+                   vbExclamation, _
+                   "Remove Aircraft"
+            Exit Sub
+        End If
+
+    Else
+
+        Dim Ch As String
+        Ch = InputBox("Select aircraft to REMOVE:" & Chr(10) & Chr(10) & acList & Chr(10) & _
+                      "Enter number:", "Remove Aircraft")
+
+        If Len(Trim(Ch)) = 0 Then Exit Sub
+
+        If Not IsNumeric(Ch) Then
+            MsgBox "Please enter a valid number.", vbExclamation, "Remove Aircraft"
+            Exit Sub
+        End If
+
+        Dim idx As Long
+        idx = CLng(Ch)
+
+        If idx < 1 Or idx > aircraftCount Then
+            MsgBox "Number out of range.", vbExclamation, "Remove Aircraft"
+            Exit Sub
+        End If
+
+        selT = tailsArr(idx)
+        selS = slotsArr(idx)
+
+    End If
+
+    If MsgBox("PERMANENTLY DELETE " & selT & " and all its planner sheets?", _
+              vbYesNo + vbExclamation, "Confirm Remove Aircraft") <> vbYes Then
+        Exit Sub
+    End If
+
+    Dim cf As String
+    cf = InputBox("Type """ & selT & """ to confirm:", "Final Confirmation")
+
+    If UCase(Trim(cf)) <> UCase(selT) Then
+        MsgBox "Cancelled.", vbInformation, "Remove Aircraft"
+        Exit Sub
+    End If
+
+    BeginFastMode suppressAlerts:=True
+
+    Dim dw As Worksheet
+
+    On Error Resume Next
+
+    Set dw = Nothing
+    Set dw = ThisWorkbook.Sheets(selT & IMPORT_SHEET_SUFFIX)
+    If Not dw Is Nothing Then dw.Delete
+
+    Set dw = Nothing
+    Set dw = ThisWorkbook.Sheets(selT & CHART_SHEET_SUFFIX)
+    If Not dw Is Nothing Then dw.Delete
+
+    On Error GoTo 0
+
+    ClearRotationRowForRemovedAircraft selS
+
+    CompactRotationSlots maxSlots
+    
+    Dim dashWs As Worksheet
+    Set dashWs = ThisWorkbook.Sheets("Dashboard")
+    
+    Dim dashRow As Long
+    dashRow = GetRotationRowForSlot(selS)
+    
+    With dashWs.Rows(dashRow)
+        .ClearContents
+        Dim c As Long
+        For c = 1 To dashWs.Columns.Count
+            On Error Resume Next
+            If Not .Cells(1, c).Comment Is Nothing Then
+                .Cells(1, c).Comment.Delete
+            End If
+            On Error GoTo 0
+        Next c
+    End With
+
+    EndFastMode
+
+    MsgBox selT & " removed.", vbInformation, "Remove Aircraft"
+
+    RefreshAll
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Checks whether at least one aircraft has imported task data.
+' Input : None. Uses Settings, Rotation, and aircraft import sheets.
+' Output : True if imported aircraft data exists, otherwise False.
+'------------------------------------------------------------------------------
+Public Function HasImportedAircraftData() As Boolean
+
+    On Error GoTo ErrHandler
+
+    HasImportedAircraftData = False
+
+    Dim maxSlots As Long
+    maxSlots = GetNamedLong("MaxAircraftSlots")
+
+    Dim rotWs As Worksheet
+    Set rotWs = ThisWorkbook.Worksheets("Rotation")
+
+    Dim slotIndex As Long
+    Dim tail As String
+    Dim impWs As Worksheet
+    Dim importRow As Long
+
+    For slotIndex = 1 To maxSlots
+
+        tail = Trim$(CStr(rotWs.Cells(GetRotationRowForSlot(slotIndex), 2).Value))
+
+        If Len(tail) > 0 Then
+
+            If SheetExists(tail & IMPORT_SHEET_SUFFIX) Then
+
+                Set impWs = ThisWorkbook.Worksheets(tail & IMPORT_SHEET_SUFFIX)
+
+                For importRow = IMPORT_FIRST_DATA_ROW To IMPORT_LAST_DATA_ROW
+                    If ImportRowHasTaskData(impWs, importRow) Then
+                        HasImportedAircraftData = True
+                        Exit Function
+                    End If
+                Next importRow
+
+            End If
+
+        End If
+
+    Next slotIndex
+
+    Exit Function
+
+ErrHandler:
+    HasImportedAircraftData = False
+
+End Function
+
+
+Public Sub ShowAircraftManager()
+
+    frmAircraftManager.Show
+    
+End Sub
+
+
+Public Sub ShowPlannerSettings()
+
+    frmPlannerSettings.Show
+    
+End Sub
+
+
+Public Sub ShowTaskRules()
+
+    frmTaskRules.Show
+
+End Sub

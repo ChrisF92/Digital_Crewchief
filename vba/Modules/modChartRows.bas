@@ -1,0 +1,287 @@
+Attribute VB_Name = "modChartRows"
+Option Explicit
+
+'------------------------------------------------------------------------------
+' Module : modChartRows
+' Purpose : Builds the unique chart row definitions for task occurrences.
+'------------------------------------------------------------------------------
+
+Public Type chartTaskRow
+    intervalType As String
+    intervalValue As Double
+    pairKey As String
+End Type
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds sorted chart task rows from task occurrences.
+' Input : taskOccurrences - visible task occurrence records.
+' totalOccurrences - number of populated occurrences.
+' Output : 1-based ChartTaskRow array.
+'------------------------------------------------------------------------------
+Public Function BuildChartTaskRows(ByRef taskOccurrences() As TaskOccurrence, _
+                                   ByVal totalOccurrences As Long) As chartTaskRow()
+
+    Dim pairDictionary As Object
+    Set pairDictionary = CreateObject("Scripting.Dictionary")
+
+    Dim occurrenceIndex As Long
+
+    For occurrenceIndex = 1 To totalOccurrences
+
+        Dim pairKey As String
+        pairKey = BuildChartPairKey( _
+            taskOccurrences(occurrenceIndex).intervalType, _
+            taskOccurrences(occurrenceIndex).intervalValue)
+
+        If Not pairDictionary.Exists(pairKey) Then
+            pairDictionary.Add pairKey, Array( _
+                taskOccurrences(occurrenceIndex).intervalType, _
+                taskOccurrences(occurrenceIndex).intervalValue)
+        End If
+
+    Next occurrenceIndex
+
+    BuildChartTaskRows = SortChartTaskRows(pairDictionary)
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds the unique chart pair key used for row matching.
+'------------------------------------------------------------------------------
+Public Function BuildChartPairKey(ByVal intervalType As String, _
+                                  ByVal intervalValue As Double) As String
+
+    BuildChartPairKey = intervalType & "|" & CStr(intervalValue)
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Sorts chart rows by type priority, then descending interval value.
+'------------------------------------------------------------------------------
+Private Function SortChartTaskRows(ByVal pairDictionary As Object) As chartTaskRow()
+
+    Dim rowCount As Long
+    rowCount = pairDictionary.Count
+
+    Dim chartRows() As chartTaskRow
+
+    If rowCount = 0 Then
+        ReDim chartRows(1 To 1)
+        SortChartTaskRows = chartRows
+        Exit Function
+    End If
+
+    ReDim chartRows(1 To rowCount)
+
+    Dim rowIndex As Long
+    rowIndex = 1
+
+    Dim pairKey As Variant
+
+    For Each pairKey In pairDictionary.Keys
+
+        chartRows(rowIndex).pairKey = CStr(pairKey)
+        chartRows(rowIndex).intervalType = CStr(pairDictionary(pairKey)(0))
+        chartRows(rowIndex).intervalValue = CDbl(pairDictionary(pairKey)(1))
+
+        rowIndex = rowIndex + 1
+
+    Next pairKey
+
+    SortChartRowsInPlace chartRows, rowCount
+
+    SortChartTaskRows = chartRows
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Bubble-sorts chart rows in place.
+' Notes : Row counts are expected to be modest, so clarity is preferred here.
+'------------------------------------------------------------------------------
+Private Sub SortChartRowsInPlace(ByRef chartRows() As chartTaskRow, _
+                                 ByVal rowCount As Long)
+
+    Dim outerIndex As Long
+    Dim innerIndex As Long
+    Dim swapped As Boolean
+
+    For outerIndex = 1 To rowCount - 1
+
+        swapped = False
+
+        For innerIndex = 1 To rowCount - outerIndex
+
+            If ShouldSwapChartRows(chartRows(innerIndex), chartRows(innerIndex + 1)) Then
+
+                Dim tempRow As chartTaskRow
+                tempRow = chartRows(innerIndex)
+
+                chartRows(innerIndex) = chartRows(innerIndex + 1)
+                chartRows(innerIndex + 1) = tempRow
+
+                swapped = True
+
+            End If
+
+        Next innerIndex
+
+        If Not swapped Then Exit For
+
+    Next outerIndex
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns True when firstRow should appear after secondRow.
+'------------------------------------------------------------------------------
+Private Function ShouldSwapChartRows(ByRef firstRow As chartTaskRow, _
+                                     ByRef secondRow As chartTaskRow) As Boolean
+
+    Dim firstOrder As Long
+    Dim secondOrder As Long
+
+    firstOrder = GetIntervalTypeSortOrder(firstRow.intervalType)
+    secondOrder = GetIntervalTypeSortOrder(secondRow.intervalType)
+
+    If firstOrder > secondOrder Then
+        ShouldSwapChartRows = True
+        Exit Function
+    End If
+
+    If firstOrder = secondOrder Then
+        If firstRow.intervalValue < secondRow.intervalValue Then
+            ShouldSwapChartRows = True
+            Exit Function
+        End If
+    End If
+
+    ShouldSwapChartRows = False
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns the chart sort order for interval types.
+'------------------------------------------------------------------------------
+Private Function GetIntervalTypeSortOrder(ByVal intervalType As String) As Long
+
+    Select Case UCase$(Trim$(intervalType))
+        Case "E1"
+            GetIntervalTypeSortOrder = 1
+
+        Case "E2"
+            GetIntervalTypeSortOrder = 2
+
+        Case "HH"
+            GetIntervalTypeSortOrder = 3
+
+        Case "DD"
+            GetIntervalTypeSortOrder = 4
+
+        Case Else
+            GetIntervalTypeSortOrder = 99
+    End Select
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Writes chart task rows and returns a lookup dictionary.
+' Input : chartWs - aircraft chart worksheet.
+' chartTaskRows - sorted chart task row definitions.
+' chartTaskRowCount - number of populated chart rows.
+' Output : Dictionary mapping PairKey to worksheet row number.
+'------------------------------------------------------------------------------
+Public Function WriteChartTaskRows(ByVal chartWs As Worksheet, _
+                                   ByRef chartTaskRows() As chartTaskRow, _
+                                   ByVal chartTaskRowCount As Long) As Object
+
+    Dim rowMap As Object
+    Set rowMap = CreateObject("Scripting.Dictionary")
+
+    If chartTaskRowCount <= 0 Then
+        Set WriteChartTaskRows = rowMap
+        Exit Function
+    End If
+
+    Dim chartRowIndex As Long
+
+    For chartRowIndex = 1 To chartTaskRowCount
+
+        Dim worksheetRow As Long
+        worksheetRow = 4 + chartRowIndex
+
+        rowMap.Add chartTaskRows(chartRowIndex).pairKey, worksheetRow
+
+        WriteOneChartTaskRow _
+            chartWs, _
+            worksheetRow, _
+            chartTaskRows(chartRowIndex)
+
+    Next chartRowIndex
+
+    Set WriteChartTaskRows = rowMap
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Writes and formats one task row on an aircraft chart.
+'------------------------------------------------------------------------------
+Private Sub WriteOneChartTaskRow(ByVal chartWs As Worksheet, _
+                                 ByVal worksheetRow As Long, _
+                                 ByRef chartTaskRow As chartTaskRow)
+
+    With chartWs
+        .Cells(worksheetRow, 1).Value = chartTaskRow.intervalType
+        .Cells(worksheetRow, 2).Value = chartTaskRow.intervalValue
+        .Cells(worksheetRow, 3).Value = BuildChartTaskRowDescription(chartTaskRow)
+
+        With .Range(.Cells(worksheetRow, 1), .Cells(worksheetRow, 3))
+            .Font.Name = "Arial"
+            .Font.Size = 9
+            .VerticalAlignment = xlCenter
+            .WrapText = True
+
+            With .Borders
+                .LineStyle = xlContinuous
+                .Color = RGB(200, 200, 200)
+                .Weight = xlThin
+            End With
+        End With
+
+        .Cells(worksheetRow, 1).HorizontalAlignment = xlCenter
+        .Cells(worksheetRow, 2).HorizontalAlignment = xlCenter
+        .Cells(worksheetRow, 3).HorizontalAlignment = xlLeft
+
+        .Cells(worksheetRow, 1).Interior.Color = TypeColour(chartTaskRow.intervalType)
+        .Cells(worksheetRow, 2).Interior.Color = TypeColour(chartTaskRow.intervalType)
+        .Cells(worksheetRow, 3).Interior.Color = RGB(242, 242, 242)
+
+        .Rows(worksheetRow).RowHeight = 24
+    End With
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds the display description for a chart task row.
+'------------------------------------------------------------------------------
+Private Function BuildChartTaskRowDescription(ByRef chartTaskRow As chartTaskRow) As String
+
+    If chartTaskRow.intervalValue = Int(chartTaskRow.intervalValue) Then
+        BuildChartTaskRowDescription = _
+            chartTaskRow.intervalType & " " & CStr(CLng(chartTaskRow.intervalValue))
+    Else
+        BuildChartTaskRowDescription = _
+            chartTaskRow.intervalType & " " & Format$(chartTaskRow.intervalValue, "0.##")
+    End If
+
+End Function
+
+

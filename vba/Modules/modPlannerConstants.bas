@@ -1,0 +1,35 @@
+Attribute VB_Name = "modPlannerConstants"
+Option Explicit
+
+'------------------------------------------------------------------------------
+' Module : modPlannerConstants
+' Purpose : Stores shared planner constants used across multiple modules.
+'------------------------------------------------------------------------------
+
+' --- Task type colours ---
+Public Const CLR_HH As Long = 14208867
+Public Const CLR_E1 As Long = 14283994
+Public Const CLR_E2 As Long = 13303551
+Public Const CLR_DD As Long = 14017788
+Public Const CLR_OTHER As Long = 15132390
+
+' --- Movement/status colours ---
+Public Const CLR_PULLED As Long = 13421823
+Public Const CLR_PUSHED As Long = 10092543
+Public Const CLR_AUTOPUSH As Long = 6118911
+
+' --- Rotation colours ---
+Public Const CLR_FLY1 As Long = 14348800
+Public Const CLR_FLY2 As Long = 13762521
+Public Const CLR_FLY3 As Long = 14024663
+Public Const CLR_DOWN As Long = 13816530
+
+' --- Comment formatting constants ---
+Public Const MAX_DESC_LEN As Long = 50
+Public Const MAX_COMMENT_LEN As Long = 2000
+Public Const COMMENT_COL_WIDTH As Long = 55
+
+' --- Dashboard aircraft order ---
+Public Const DASHBOARD_SORT_TAIL As String = "Tail Number"
+Public Const DASHBOARD_SORT_CYCLE As String = "Cycle Week"
+

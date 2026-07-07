@@ -1,0 +1,325 @@
+Attribute VB_Name = "modRefresh"
+Option Explicit
+
+'------------------------------------------------------------------------------
+' Module : modRefresh
+' Purpose : Handles refreshing of aircraft data.
+'------------------------------------------------------------------------------
+
+'------------------------------------------------------------------------------
+' Purpose : Rebuilds the full planner forecast and dashboard for all aircraft.
+' Input : None. Loads settings, rates, aircraft roster, and worksheet data.
+' Output : Updates dashboard and aircraft chart sheets.
+'------------------------------------------------------------------------------
+Public Sub RefreshAll()
+
+    On Error GoTo ErrHandler
+
+    BeginFastMode
+    LoadTaskRuleCache
+
+    ' Load and validate planner settings
+    Dim settings As PlannerSettings
+    settings = LoadPlannerSettings()
+        
+    Dim rates As plannerRates
+    rates = LoadPlannerRates()
+
+    Dim aircraftRoster As aircraftRoster
+    aircraftRoster = LoadAircraftRoster(settings)
+    
+    Dim tailNumbers() As String
+    Dim cycleStarts() As Long
+    Dim planningModes() As String
+    Dim downStarts() As Variant
+    Dim expectedRTS() As Variant
+    Dim downReasons() As String
+    Dim aircraftCount As Long
+    
+    tailNumbers = aircraftRoster.tailNumbers
+    cycleStarts = aircraftRoster.cycleStarts
+    planningModes = aircraftRoster.planningModes
+    downStarts = aircraftRoster.MaintenanceStarts
+    expectedRTS = aircraftRoster.ExpectedReturnToServiceDates
+    downReasons = aircraftRoster.MaintenanceReasons
+    aircraftCount = aircraftRoster.aircraftCount
+
+    Dim weekStartDates() As Date
+    weekStartDates = BuildDisplayWeekStartDates(settings.displayStart, settings.displayWeeksShown)
+
+    Dim dashWs As Worksheet
+    Set dashWs = PrepareDashboard(settings.MaxAircraftSlots)
+
+    Dim aircraftIndex As Long
+    Dim failedTail As String
+    failedTail = vbNullString
+
+    For aircraftIndex = 1 To aircraftCount
+
+        failedTail = tailNumbers(aircraftIndex)
+
+        RefreshOneAircraft _
+            aircraftIndex, _
+            aircraftRoster, _
+            settings, _
+            rates, _
+            weekStartDates, _
+            dashWs
+
+    Next aircraftIndex
+
+    With dashWs.Range("A4:K" & 4 + Application.Max(aircraftCount, 1))
+        .Font.Name = "Arial"
+        .Font.Size = 10
+        .VerticalAlignment = xlTop
+        .WrapText = True
+        .Borders.LineStyle = xlContinuous
+        .Borders.Color = RGB(220, 220, 220)
+    End With
+
+    If aircraftCount > 0 Then dashWs.Rows("5:" & 4 + aircraftCount).RowHeight = 66
+
+    LayoutDashboardReimportButtons dashWs, tailNumbers, aircraftCount
+    WriteDashboardImportBanner dashWs, tailNumbers, aircraftCount
+
+    MsgBox "Refresh complete. " & aircraftCount & " aircraft processed.", vbInformation, "Wildcat Planner"
+
+CleanExit:
+    ClearTaskRuleCache
+    EndFastMode
+    Exit Sub
+
+ErrHandler:
+    ClearTaskRuleCache
+    EndFastMode
+
+    Dim errorMessage As String
+    errorMessage = "Refresh failed."
+
+    If Len(failedTail) > 0 Then
+        errorMessage = errorMessage & vbCrLf & vbCrLf & _
+            "Aircraft: " & failedTail
+    End If
+
+    errorMessage = errorMessage & vbCrLf & vbCrLf & _
+        "Error " & Err.Number & ": " & Err.Description
+
+    MsgBox errorMessage, _
+            vbExclamation, _
+            "Refresh All"
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Runs RefreshAll after workbook open once Excel has finished loading.
+' Notes : Scheduled from ThisWorkbook.Workbook_Open via Application.OnTime.
+'------------------------------------------------------------------------------
+Public Sub DeferredRefreshAll()
+
+    RefreshAll
+
+End Sub
+
+'------------------------------------------------------------------------------
+' Purpose : Calculates the forecast due date for an hour/counter-based task.
+' Input : lifeRem - remaining life/counter value.
+' normType - normalised interval type, such as HH, E1, or E2.
+' weekStartDates - array of displayed week start dates.
+' weekHHRate - weekly flying hour rate array.
+' weekE1Rate - weekly E1 rate array.
+' weekE2Rate - weekly E2 rate array.
+' WeeksShown - number of forecast weeks shown.
+' forecastStart - forecast start date.
+' Output : Estimated due date, or 31/12/9999 if no rate is available.
+'------------------------------------------------------------------------------
+Public Function CalcHourDueDate(lifeRem As Double, normType As String, weekStartDates() As Date, _
+    weekHHRate() As Double, weekE1Rate() As Double, weekE2Rate() As Double, _
+    WeeksShown As Long, forecastStart As Date) As Date
+
+    Dim hoursLeft As Double
+    hoursLeft = lifeRem
+
+    Dim w As Long
+    Dim rate As Double
+
+    For w = 1 To WeeksShown
+
+        Select Case normType
+            Case "HH": rate = weekHHRate(w)
+            Case "E1": rate = weekE1Rate(w)
+            Case "E2": rate = weekE2Rate(w)
+            Case Else: rate = weekHHRate(w)
+        End Select
+
+        If rate > 0 Then
+            If hoursLeft <= rate Then
+                CalcHourDueDate = weekStartDates(w) + CLng((hoursLeft / rate) * 7)
+                Exit Function
+            End If
+
+            hoursLeft = hoursLeft - rate
+        End If
+
+    Next w
+
+    Dim totalRate As Double
+    Dim flyCount As Long
+
+    totalRate = 0
+    flyCount = 0
+
+    For w = 1 To WeeksShown
+
+        Select Case normType
+            Case "HH": rate = weekHHRate(w)
+            Case "E1": rate = weekE1Rate(w)
+            Case "E2": rate = weekE2Rate(w)
+            Case Else: rate = weekHHRate(w)
+        End Select
+
+        If rate > 0 Then
+            totalRate = totalRate + rate
+            flyCount = flyCount + 1
+        End If
+
+    Next w
+
+    If flyCount > 0 And totalRate > 0 Then
+        CalcHourDueDate = weekStartDates(WeeksShown) + 7 + CLng((hoursLeft / (totalRate / flyCount)) * 7)
+    Else
+        CalcHourDueDate = #12/31/9999#
+    End If
+
+End Function
+
+'------------------------------------------------------------------------------
+' Purpose : Calculates the next recurrence date for a repeating hour/counter-based task.
+' Input : fromDate - date to calculate from.
+' intervalHrs - recurrence interval.
+' normType - normalised interval type, such as HH, E1, or E2.
+' weekStartDates - array of displayed week start dates.
+' weekHHRate - weekly flying hour rate array.
+' weekE1Rate - weekly E1 rate array.
+' weekE2Rate - weekly E2 rate array.
+' WeeksShown - number of forecast weeks shown.
+' ForecastEnd - forecast end date.
+' Output : Estimated recurrence date, or 31/12/9999 if outside forecast.
+'------------------------------------------------------------------------------
+Public Function CalcNextRecurrence(fromDate As Date, intervalHrs As Double, normType As String, _
+    weekStartDates() As Date, weekHHRate() As Double, weekE1Rate() As Double, _
+    weekE2Rate() As Double, WeeksShown As Long, ForecastEnd As Date) As Date
+
+    Dim startWk As Long
+    startWk = 0
+
+    Dim w As Long
+    Dim rate As Double
+
+    For w = 1 To WeeksShown
+        If fromDate >= weekStartDates(w) And fromDate < weekStartDates(w) + 7 Then
+            startWk = w
+            Exit For
+        End If
+    Next w
+
+    If startWk = 0 Then
+        If fromDate >= weekStartDates(WeeksShown) + 7 Then
+            CalcNextRecurrence = #12/31/9999#
+            Exit Function
+        End If
+
+        startWk = 1
+    End If
+
+    Dim hoursLeft As Double
+    hoursLeft = intervalHrs
+
+    Dim daysLeft As Long
+    daysLeft = 7 - (fromDate - weekStartDates(startWk))
+
+    If daysLeft > 0 And daysLeft < 7 Then
+
+        Select Case normType
+            Case "HH": rate = weekHHRate(startWk)
+            Case "E1": rate = weekE1Rate(startWk)
+            Case "E2": rate = weekE2Rate(startWk)
+            Case Else: rate = weekHHRate(startWk)
+        End Select
+
+        If rate > 0 Then
+
+            Dim partialHrs As Double
+            partialHrs = rate * (daysLeft / 7)
+
+            If partialHrs >= hoursLeft Then
+                CalcNextRecurrence = weekStartDates(startWk) + (7 - daysLeft) + CLng((hoursLeft / rate) * 7)
+                Exit Function
+            End If
+
+            hoursLeft = hoursLeft - partialHrs
+
+        End If
+
+        startWk = startWk + 1
+
+    Else
+        startWk = startWk + 1
+    End If
+
+    For w = startWk To WeeksShown
+
+        Select Case normType
+            Case "HH": rate = weekHHRate(w)
+            Case "E1": rate = weekE1Rate(w)
+            Case "E2": rate = weekE2Rate(w)
+            Case Else: rate = weekHHRate(w)
+        End Select
+
+        If rate > 0 Then
+            If hoursLeft <= rate Then
+                CalcNextRecurrence = weekStartDates(w) + CLng((hoursLeft / rate) * 7)
+                Exit Function
+            End If
+
+            hoursLeft = hoursLeft - rate
+        End If
+
+    Next w
+
+    CalcNextRecurrence = #12/31/9999#
+
+End Function
+
+'------------------------------------------------------------------------------
+' Purpose : Adds or increments a grouped summary item and appends its detail text.
+' Input : summaryDict - dictionary of item labels to counts.
+' detailDict - dictionary of item labels to detail text.
+' itemLabel - grouping label.
+' detailText - task/detail text to append.
+' Output : Updates summaryDict and detailDict in place.
+'------------------------------------------------------------------------------
+Public Sub AddSummaryItem(summaryDict As Object, detailDict As Object, _
+                   itemLabel As String, detailText As String)
+
+    If summaryDict.Exists(itemLabel) Then
+        summaryDict(itemLabel) = summaryDict(itemLabel) + 1
+        detailDict(itemLabel) = detailDict(itemLabel) & Chr(10) & detailText
+    Else
+        summaryDict.Add itemLabel, 1
+        detailDict.Add itemLabel, detailText
+    End If
+
+End Sub
+
+'------------------------------------------------------------------------------
+' Purpose : Returns the displayed forecast week start for a given date.
+' Input : theDate - date to place into a display week.
+' displayStart - first displayed forecast week start.
+' Output : Start date of the matching display week.
+'------------------------------------------------------------------------------
+Public Function DisplayWeekStart(theDate As Date, displayStart As Date) As Date
+    Dim offsetDays As Long
+    
+    offsetDays = CLng(DateValue(theDate)) - CLng(DateValue(displayStart))
+    DisplayWeekStart = DateValue(displayStart) + 7 * Int(offsetDays / 7)
+End Function

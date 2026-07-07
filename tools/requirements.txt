@@ -1,0 +1,2 @@
+pyopenvba>=0.1.0
+oletools>=0.60

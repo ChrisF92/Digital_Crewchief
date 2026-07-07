@@ -1,0 +1,406 @@
+Attribute VB_Name = "modTaskOccurrenceBuilder"
+Option Explicit
+
+'------------------------------------------------------------------------------
+' Module : modTaskOccurrenceBuilder
+' Purpose : Builds TaskOccurrence records for one aircraft during RefreshAll.
+'------------------------------------------------------------------------------
+
+Public Type TaskOccurrenceBuildResult
+    taskOccurrences() As TaskOccurrence
+    totalOccurrences As Long
+    totalImported As Long
+    totalShown As Long
+End Type
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds all visible task occurrences for one aircraft.
+' Input : importWs - aircraft import worksheet.
+' settings - validated planner settings.
+' forecastStart - forecast start date.
+' displayStart - first visible display week.
+' displayEnd - final visible display date.
+' weekStartDates - visible planner week starts.
+' weekHHRates - weekly HH rates for aircraft.
+' weekE1Rates - weekly E1 rates for aircraft.
+' weekE2Rates - weekly E2 rates for aircraft.
+' weekCyclePositions - weekly cycle positions for aircraft.
+' Output : TaskOccurrenceBuildResult.
+'------------------------------------------------------------------------------
+Public Function BuildTaskOccurrencesForAircraft(ByVal importWs As Worksheet, _
+                                                ByRef settings As PlannerSettings, _
+                                                ByVal forecastStart As Date, _
+                                                ByVal displayStart As Date, _
+                                                ByVal displayEnd As Date, _
+                                                ByRef weekStartDates() As Date, _
+                                                ByRef weekHHRates() As Double, _
+                                                ByRef weekE1Rates() As Double, _
+                                                ByRef weekE2Rates() As Double, _
+                                                ByRef weekCyclePositions() As Long) As TaskOccurrenceBuildResult
+
+    Dim result As TaskOccurrenceBuildResult
+
+    result.taskOccurrences = CreateTaskOccurrenceArray()
+    result.totalOccurrences = 0
+    result.totalImported = 0
+    result.totalShown = 0
+
+    Dim importRow As Long
+
+    For importRow = IMPORT_FIRST_DATA_ROW To IMPORT_LAST_DATA_ROW
+
+        If Not ImportRowHasTaskData(importWs, importRow) Then GoTo NextImportRow
+
+        result.totalImported = result.totalImported + 1
+
+        Dim taskRecord As ImportTaskRecord
+        taskRecord = ReadImportTaskRecord(importWs, importRow)
+
+        If Not taskRecord.ShowInPlanner Then GoTo NextImportRow
+
+        Dim occurrencesBefore As Long
+        occurrencesBefore = result.totalOccurrences
+
+        AddTaskRecordOccurrences _
+            result, _
+            taskRecord, _
+            settings, _
+            forecastStart, _
+            displayStart, _
+            displayEnd, _
+            weekStartDates, _
+            weekHHRates, _
+            weekE1Rates, _
+            weekE2Rates, _
+            weekCyclePositions
+
+        If result.totalOccurrences > occurrencesBefore Then
+            result.totalShown = result.totalShown + 1
+        End If
+
+NextImportRow:
+    Next importRow
+
+    BuildTaskOccurrencesForAircraft = result
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Adds all visible occurrences for one imported task record.
+'------------------------------------------------------------------------------
+Private Sub AddTaskRecordOccurrences(ByRef result As TaskOccurrenceBuildResult, _
+                                     ByRef taskRecord As ImportTaskRecord, _
+                                     ByRef settings As PlannerSettings, _
+                                     ByVal forecastStart As Date, _
+                                     ByVal displayStart As Date, _
+                                     ByVal displayEnd As Date, _
+                                     ByRef weekStartDates() As Date, _
+                                     ByRef weekHHRates() As Double, _
+                                     ByRef weekE1Rates() As Double, _
+                                     ByRef weekE2Rates() As Double, _
+                                     ByRef weekCyclePositions() As Long)
+
+    Dim intervalType As String
+    intervalType = taskRecord.IntervalTypeNormalised
+
+    Dim intervalValue As Double
+    intervalValue = taskRecord.ActualInterval
+
+    Dim lifeRemaining As Double
+    lifeRemaining = taskRecord.lifeRemaining
+
+    Dim taskCode As String
+    taskCode = taskRecord.taskCode
+
+    Dim taskDescription As String
+    taskDescription = taskRecord.taskDescription
+
+    Dim existingExtensionAmount As Double
+    existingExtensionAmount = taskRecord.existingExtensionAmount
+
+    Dim existingExtensionPercent As Double
+    existingExtensionPercent = taskRecord.existingExtensionPercent
+
+    Dim isHourBased As Boolean
+    isHourBased = IsHourBasedIntervalType(intervalType)
+
+    Dim firstDueDate As Date
+
+    If Not TryGetFirstDueDate( _
+        taskRecord, _
+        intervalType, _
+        lifeRemaining, _
+        isHourBased, _
+        forecastStart, _
+        settings.displayWeeksShown, _
+        weekStartDates, _
+        weekHHRates, _
+        weekE1Rates, _
+        weekE2Rates, _
+        firstDueDate) Then
+
+        Exit Sub
+    End If
+
+    Dim canReforecast As Boolean
+    canReforecast = CanReforecastTask( _
+        intervalType, _
+        intervalValue, _
+        settings.reforecastThreshold)
+
+    Dim dueDate As Date
+    dueDate = firstDueDate
+
+    Dim occurrenceNumber As Long
+    occurrenceNumber = 0
+
+    Do
+
+        If dueDate > displayEnd Then Exit Do
+
+        AddSingleVisibleOccurrence _
+            result, _
+            taskRecord, _
+            intervalType, _
+            intervalValue, _
+            lifeRemaining, _
+            taskCode, _
+            taskDescription, _
+            firstDueDate, _
+            dueDate, _
+            occurrenceNumber, _
+            existingExtensionAmount, _
+            existingExtensionPercent, _
+            isHourBased, _
+            settings, _
+            displayStart, _
+            displayEnd, _
+            weekStartDates, _
+            weekHHRates, _
+            weekE1Rates, _
+            weekE2Rates, _
+            weekCyclePositions
+
+        occurrenceNumber = occurrenceNumber + 1
+
+        If Not canReforecast Or occurrenceNumber > 200 Then Exit Do
+
+        If Not TryGetNextDueDate( _
+            dueDate, _
+            intervalValue, _
+            intervalType, _
+            isHourBased, _
+            settings.displayWeeksShown, _
+            displayEnd, _
+            weekStartDates, _
+            weekHHRates, _
+            weekE1Rates, _
+            weekE2Rates) Then
+
+            Exit Do
+        End If
+
+    Loop
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Calculates the first due date for a task record.
+' Output : True if a valid first due date was found.
+'------------------------------------------------------------------------------
+Private Function TryGetFirstDueDate(ByRef taskRecord As ImportTaskRecord, _
+                                    ByVal intervalType As String, _
+                                    ByVal lifeRemaining As Double, _
+                                    ByVal isHourBased As Boolean, _
+                                    ByVal forecastStart As Date, _
+                                    ByVal displayWeeksShown As Long, _
+                                    ByRef weekStartDates() As Date, _
+                                    ByRef weekHHRates() As Double, _
+                                    ByRef weekE1Rates() As Double, _
+                                    ByRef weekE2Rates() As Double, _
+                                    ByRef firstDueDate As Date) As Boolean
+
+    If isHourBased Then
+
+        firstDueDate = CalcHourDueDate( _
+            lifeRemaining, _
+            intervalType, _
+            weekStartDates, _
+            weekHHRates, _
+            weekE1Rates, _
+            weekE2Rates, _
+            displayWeeksShown, _
+            forecastStart)
+
+        TryGetFirstDueDate = True
+
+    Else
+
+        If taskRecord.HasProjectedDueDate Then
+            firstDueDate = taskRecord.ProjectedDueDate
+            TryGetFirstDueDate = True
+        Else
+            TryGetFirstDueDate = False
+        End If
+
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Adds one occurrence if it falls inside the visible display period.
+'------------------------------------------------------------------------------
+Private Sub AddSingleVisibleOccurrence(ByRef result As TaskOccurrenceBuildResult, _
+                                       ByRef taskRecord As ImportTaskRecord, _
+                                       ByVal intervalType As String, _
+                                       ByVal intervalValue As Double, _
+                                       ByVal lifeRemaining As Double, _
+                                       ByVal taskCode As String, _
+                                       ByVal taskDescription As String, _
+                                       ByVal firstDueDate As Date, _
+                                       ByVal dueDate As Date, _
+                                       ByVal occurrenceNumber As Long, _
+                                       ByVal existingExtensionAmount As Double, _
+                                       ByVal existingExtensionPercent As Double, _
+                                       ByVal isHourBased As Boolean, _
+                                       ByRef settings As PlannerSettings, _
+                                       ByVal displayStart As Date, _
+                                       ByVal displayEnd As Date, _
+                                       ByRef weekStartDates() As Date, _
+                                       ByRef weekHHRates() As Double, _
+                                       ByRef weekE1Rates() As Double, _
+                                       ByRef weekE2Rates() As Double, _
+                                       ByRef weekCyclePositions() As Long)
+
+    Dim isOverdueAtDisplayStart As Boolean
+    isOverdueAtDisplayStart = (dueDate < displayStart)
+
+    Dim naturalWeekStart As Date
+
+    If isOverdueAtDisplayStart Then
+        naturalWeekStart = displayStart
+    Else
+        naturalWeekStart = DisplayWeekStart(dueDate, displayStart)
+    End If
+
+    If naturalWeekStart < displayStart Or naturalWeekStart > displayEnd Then Exit Sub
+
+    Dim dueWeekIndex As Long
+    dueWeekIndex = CLng((naturalWeekStart - displayStart) / 7) + 1
+
+    Dim movement As TaskMovementResult
+
+    If isOverdueAtDisplayStart Then
+
+        movement.finalWeek = naturalWeekStart
+        movement.WasPulled = False
+        movement.WasPushed = False
+        movement.extensionPercentUsed = 0
+        movement.pullPercentUsed = 0
+
+    Else
+
+        movement = CalculateTaskMovement( _
+            naturalWeekStart, _
+            dueWeekIndex, _
+            occurrenceNumber, _
+            isHourBased, _
+            intervalValue, _
+            intervalType, _
+            weekStartDates, _
+            weekCyclePositions, _
+            weekHHRates, _
+            weekE1Rates, _
+            weekE2Rates, _
+            settings, _
+            existingExtensionPercent, _
+            IsNoPullTaskCode(taskCode), _
+            IsNoExtendTaskCode(taskCode))
+
+    End If
+
+    Dim occurrenceExistingExtensionPercent As Double
+    Dim occurrenceExistingExtensionAmount As Double
+
+    If occurrenceNumber = 0 Then
+        occurrenceExistingExtensionPercent = existingExtensionPercent
+        occurrenceExistingExtensionAmount = existingExtensionAmount
+    Else
+        occurrenceExistingExtensionPercent = 0
+        occurrenceExistingExtensionAmount = 0
+    End If
+
+    result.totalOccurrences = result.totalOccurrences + 1
+    EnsureTaskOccurrenceCapacity result.taskOccurrences, result.totalOccurrences
+
+    result.taskOccurrences(result.totalOccurrences) = BuildTaskOccurrence( _
+        taskRecord.serialNumber, _
+        taskRecord.TaskSequence, _
+        lifeRemaining, _
+        intervalType, _
+        intervalValue, _
+        movement.finalWeek, _
+        naturalWeekStart, _
+        dueDate, _
+        movement.WasPushed, _
+        movement.extensionPercentUsed, _
+        movement.WasPulled, _
+        movement.pullPercentUsed, _
+        taskCode, _
+        taskDescription, _
+        IsHighlightedTaskCode(taskCode), _
+        occurrenceExistingExtensionPercent, _
+        occurrenceExistingExtensionAmount, _
+        isOverdueAtDisplayStart)
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Calculates and updates the next due date.
+' Output : True if another due date was calculated.
+'------------------------------------------------------------------------------
+Private Function TryGetNextDueDate(ByRef dueDate As Date, _
+                                   ByVal intervalValue As Double, _
+                                   ByVal intervalType As String, _
+                                   ByVal isHourBased As Boolean, _
+                                   ByVal displayWeeksShown As Long, _
+                                   ByVal displayEnd As Date, _
+                                   ByRef weekStartDates() As Date, _
+                                   ByRef weekHHRates() As Double, _
+                                   ByRef weekE1Rates() As Double, _
+                                   ByRef weekE2Rates() As Double) As Boolean
+
+    If isHourBased Then
+
+        dueDate = CalcNextRecurrence( _
+            dueDate, _
+            intervalValue, _
+            intervalType, _
+            weekStartDates, _
+            weekHHRates, _
+            weekE1Rates, _
+            weekE2Rates, _
+            displayWeeksShown, _
+            displayEnd)
+
+        If dueDate = #12/31/9999# Then
+            TryGetNextDueDate = False
+        Else
+            TryGetNextDueDate = True
+        End If
+
+    Else
+
+        dueDate = dueDate + CLng(intervalValue)
+        TryGetNextDueDate = True
+
+    End If
+
+End Function
+
+
