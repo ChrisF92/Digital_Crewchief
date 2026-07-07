@@ -27,11 +27,7 @@ End Function
 '------------------------------------------------------------------------------
 Public Function BuildOccurrenceDueText(ByRef occurrence As TaskOccurrence) As String
 
-    If occurrence.intervalType = "DD" Then
-        BuildOccurrenceDueText = "Due: " & Format$(occurrence.firstDueDate, "DD/MM/YYYY")
-    Else
-        BuildOccurrenceDueText = "Due: 0:00 " & occurrence.intervalType
-    End If
+    BuildOccurrenceDueText = "Due: " & Format$(occurrence.firstDueDate, "DD/MM/YYYY")
 
 End Function
 

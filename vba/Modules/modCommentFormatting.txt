@@ -172,8 +172,10 @@ Public Function BuildOccurrenceTimeRemainingText(ByRef occurrence As TaskOccurre
 
     End If
 
-    BuildOccurrenceTimeRemainingText = _
-        BuildOccurrenceTimeRemainingText & " | " & BuildOccurrenceDueText(occurrence)
+    If occurrence.intervalType = "DD" Then
+        BuildOccurrenceTimeRemainingText = _
+            BuildOccurrenceTimeRemainingText & " | " & BuildOccurrenceDueText(occurrence)
+    End If
 
 End Function
 
