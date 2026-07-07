@@ -1,0 +1,328 @@
+Attribute VB_Name = "modCommentFormatting"
+Option Explicit
+
+'------------------------------------------------------------------------------
+' Module : modCommentFormatting
+' Purpose : Builds structured chart and dashboard comment text.
+'------------------------------------------------------------------------------
+
+Private Const COMMENT_BULLET As String = "• "
+Private Const SECTION_EXTENSIONS As String = "EXTENSIONS TO RAISE"
+Private Const SECTION_SCHEDULED As String = "SCHEDULED THIS WEEK"
+Private Const SECTION_DUE As String = "DUE"
+
+
+'------------------------------------------------------------------------------
+' Purpose : Formats a decimal proportion as a percentage to two decimal places.
+'------------------------------------------------------------------------------
+Public Function FormatOccurrencePercent(ByVal proportion As Double) As String
+
+    FormatOccurrencePercent = Format$(proportion * 100, "0.00") & "%"
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds the task code and description label for a comment bullet.
+'------------------------------------------------------------------------------
+Public Function BuildOccurrenceTaskLabel(ByRef occurrence As TaskOccurrence) As String
+
+    If occurrence.isHighlighted Then
+        BuildOccurrenceTaskLabel = occurrence.taskCode & " — " & _
+                                   TruncateDesc(occurrence.taskDescription) & " [Critical]"
+    Else
+        BuildOccurrenceTaskLabel = occurrence.taskCode & " — " & _
+                                   TruncateDesc(occurrence.taskDescription)
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds the days or hours remaining text for one occurrence.
+'------------------------------------------------------------------------------
+Public Function BuildOccurrenceTimeRemainingText(ByRef occurrence As TaskOccurrence) As String
+
+    If occurrence.intervalType = "DD" Then
+
+        Dim daysRemaining As Long
+        daysRemaining = CLng(occurrence.firstDueDate) - CLng(Date)
+
+        If daysRemaining < 0 Then
+            If Abs(daysRemaining) = 1 Then
+                BuildOccurrenceTimeRemainingText = "1 day overdue"
+            Else
+                BuildOccurrenceTimeRemainingText = CStr(Abs(daysRemaining)) & " days overdue"
+            End If
+        ElseIf daysRemaining = 0 Then
+            BuildOccurrenceTimeRemainingText = "due today"
+        ElseIf daysRemaining = 1 Then
+            BuildOccurrenceTimeRemainingText = "1 day remaining"
+        Else
+            BuildOccurrenceTimeRemainingText = CStr(daysRemaining) & " days remaining"
+        End If
+
+    Else
+
+        If occurrence.lifeRemaining < 0 Then
+            BuildOccurrenceTimeRemainingText = _
+                FormatHoursToHMM(Abs(occurrence.lifeRemaining)) & " hrs overdue"
+        Else
+            BuildOccurrenceTimeRemainingText = _
+                FormatHoursToHMM(occurrence.lifeRemaining) & " hrs remaining"
+        End If
+
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns the extension amount added by auto-push.
+'------------------------------------------------------------------------------
+Public Function GetOccurrenceExtensionAddedAmount(ByRef occurrence As TaskOccurrence) As Double
+
+    GetOccurrenceExtensionAddedAmount = occurrence.extensionPercentUsed * occurrence.intervalValue
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Formats the extension amount added by auto-push.
+'------------------------------------------------------------------------------
+Public Function FormatOccurrenceExtensionAddedAmount(ByRef occurrence As TaskOccurrence) As String
+
+    Dim extensionAmount As Double
+    extensionAmount = GetOccurrenceExtensionAddedAmount(occurrence)
+
+    If occurrence.intervalType = "DD" Then
+        If extensionAmount = Int(extensionAmount) Then
+            FormatOccurrenceExtensionAddedAmount = CStr(CLng(extensionAmount)) & " days"
+        Else
+            FormatOccurrenceExtensionAddedAmount = Format$(extensionAmount, "0.##") & " days"
+        End If
+    Else
+        FormatOccurrenceExtensionAddedAmount = FormatHoursToHMM(extensionAmount) & " hrs"
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds the extension summary text for one occurrence.
+'------------------------------------------------------------------------------
+Public Function BuildOccurrenceExtensionSummaryText(ByRef occurrence As TaskOccurrence) As String
+
+    Dim summaryText As String
+
+    summaryText = "Extended " & FormatOccurrenceExtensionAddedAmount(occurrence) & _
+                  " (" & FormatOccurrencePercent(occurrence.extensionPercentUsed) & _
+                  ") to Maint"
+
+    If occurrence.existingExtensionPercent > 0 Then
+
+        Dim totalPercent As Double
+        Dim totalAmount As Double
+
+        totalPercent = occurrence.existingExtensionPercent + occurrence.extensionPercentUsed
+        totalAmount = totalPercent * occurrence.intervalValue
+
+        If occurrence.intervalType = "DD" Then
+            summaryText = summaryText & " | Total ext " & _
+                          Format$(totalAmount, "0.##") & " days (" & _
+                          FormatOccurrencePercent(totalPercent) & _
+                          "); imported ext " & _
+                          Format$(occurrence.existingExtensionAmount, "0.##") & " days"
+        Else
+            summaryText = summaryText & " | Total ext " & _
+                          FormatHoursToHMM(totalAmount) & " hrs (" & _
+                          FormatOccurrencePercent(totalPercent) & _
+                          "); imported ext " & _
+                          Format$(occurrence.existingExtensionAmount, "0.##") & " hrs"
+        End If
+
+    End If
+
+    BuildOccurrenceExtensionSummaryText = summaryText
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds a bullet for an extension that must be raised.
+'------------------------------------------------------------------------------
+Public Function BuildExtensionRaiseBullet(ByRef occurrence As TaskOccurrence) As String
+
+    BuildExtensionRaiseBullet = COMMENT_BULLET & BuildOccurrenceTaskLabel(occurrence) & _
+                                " | Raise by " & Format$(occurrence.originalWeek, "DD/MM/YYYY") & _
+                                " | [EXT. REQ. FOR " & Format$(occurrence.originalWeek, "DD/MM/YYYY") & _
+                                "] | " & BuildOccurrenceExtensionSummaryText(occurrence)
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds a bullet for a task scheduled in a chart or dashboard cell.
+'------------------------------------------------------------------------------
+Public Function BuildOccurrenceScheduledBullet(ByRef occurrence As TaskOccurrence) As String
+
+    Dim bulletText As String
+
+    bulletText = COMMENT_BULLET & BuildOccurrenceTaskLabel(occurrence) & _
+                 " | " & BuildOccurrenceTimeRemainingText(occurrence)
+
+    If occurrence.GroupedDirection = -1 Then
+        bulletText = bulletText & " | Aligned earlier by " & _
+                     FormatOccurrenceGroupedAlignmentAmount(occurrence)
+    ElseIf occurrence.GroupedDirection = 1 Then
+        bulletText = bulletText & " | Aligned later by " & _
+                     FormatOccurrenceGroupedAlignmentAmount(occurrence)
+    End If
+
+    If occurrence.wasAutoPulled Then
+        bulletText = bulletText & " | Pulled " & FormatOccurrencePullAmount(occurrence) & _
+                     " (" & FormatOccurrencePercent(occurrence.pullPercentUsed) & _
+                     ") to Maint"
+    End If
+
+    BuildOccurrenceScheduledBullet = bulletText
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Appends one bullet line to an existing multiline bullet block.
+'------------------------------------------------------------------------------
+Public Sub AppendCommentBullet(ByRef bulletBlock As String, ByVal bulletLine As String)
+
+    If Len(bulletBlock) > 0 Then
+        bulletBlock = bulletBlock & vbLf & bulletLine
+    Else
+        bulletBlock = bulletLine
+    End If
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds one structured comment section.
+'------------------------------------------------------------------------------
+Public Function BuildCommentSection(ByVal sectionTitle As String, _
+                                    ByVal taskCount As Long, _
+                                    ByVal bulletBlock As String) As String
+
+    If taskCount <= 0 Then
+        BuildCommentSection = vbNullString
+        Exit Function
+    End If
+
+    BuildCommentSection = sectionTitle & " (" & CStr(taskCount) & ")" & vbLf & bulletBlock
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds a structured chart cell comment with extensions listed first.
+'------------------------------------------------------------------------------
+Public Function BuildStructuredChartCellComment(ByVal extensionCount As Long, _
+                                                 ByVal extensionBullets As String, _
+                                                 ByVal scheduledCount As Long, _
+                                                 ByVal scheduledBullets As String) As String
+
+    Dim result As String
+    Dim extensionSection As String
+    Dim scheduledSection As String
+
+    extensionSection = BuildCommentSection(SECTION_EXTENSIONS, extensionCount, extensionBullets)
+    scheduledSection = BuildCommentSection(SECTION_SCHEDULED, scheduledCount, scheduledBullets)
+
+    If Len(extensionSection) > 0 Then
+        result = extensionSection
+    End If
+
+    If Len(scheduledSection) > 0 Then
+        If Len(result) > 0 Then result = result & vbLf & vbLf
+        result = result & scheduledSection
+    End If
+
+    BuildStructuredChartCellComment = result
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds the extension-due row comment for one chart week column.
+'------------------------------------------------------------------------------
+Public Function BuildExtensionDueWeekComment(ByVal extensionCount As Long, _
+                                             ByVal weekKey As String, _
+                                             ByVal bulletBlock As String) As String
+
+    Dim sectionText As String
+    sectionText = BuildCommentSection(SECTION_EXTENSIONS, extensionCount, bulletBlock)
+
+    If Len(sectionText) = 0 Then
+        BuildExtensionDueWeekComment = vbNullString
+    Else
+        BuildExtensionDueWeekComment = "Raise extensions by " & weekKey & vbLf & vbLf & sectionText
+    End If
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds a dashboard interval-group comment with extensions listed first.
+'------------------------------------------------------------------------------
+Public Function BuildDashboardIntervalGroupComment(ByVal intervalLabel As String, _
+                                                   ByVal extensionCount As Long, _
+                                                   ByVal extensionBullets As String, _
+                                                   ByVal dueCount As Long, _
+                                                   ByVal dueBullets As String) As String
+
+    Dim result As String
+    Dim extensionSection As String
+    Dim dueSection As String
+
+    result = intervalLabel & " (" & CStr(extensionCount + dueCount) & ")"
+
+    extensionSection = BuildCommentSection(SECTION_EXTENSIONS, extensionCount, extensionBullets)
+    dueSection = BuildCommentSection(SECTION_DUE, dueCount, dueBullets)
+
+    If Len(extensionSection) > 0 Then
+        result = result & vbLf & vbLf & extensionSection
+    End If
+
+    If Len(dueSection) > 0 Then
+        If Len(extensionSection) = 0 Then
+            result = result & vbLf & vbLf
+        Else
+            result = result & vbLf & vbLf
+        End If
+        result = result & dueSection
+    End If
+
+    BuildDashboardIntervalGroupComment = result
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds a dashboard extensions-by-week group comment.
+'------------------------------------------------------------------------------
+Public Function BuildDashboardExtensionWeekComment(ByVal weekKey As String, _
+                                                   ByVal extensionCount As Long, _
+                                                   ByVal bulletBlock As String) As String
+
+    Dim result As String
+    Dim sectionText As String
+
+    result = "Raise by " & weekKey & " (" & CStr(extensionCount) & ")"
+    sectionText = BuildCommentSection(SECTION_EXTENSIONS, extensionCount, bulletBlock)
+
+    If Len(sectionText) > 0 Then
+        result = result & vbLf & vbLf & sectionText
+    End If
+
+    BuildDashboardExtensionWeekComment = result
+
+End Function
+

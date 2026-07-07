@@ -121,7 +121,7 @@ Public Sub ClassifyDashboardOccurrences(ByRef dashboardBuckets As DashboardSumma
         intervalLabel = BuildOccurrenceIntervalLabel(taskOccurrences(occurrenceIndex))
 
         Dim detailText As String
-        detailText = BuildDashboardOccurrenceDetail(taskOccurrences(occurrenceIndex))
+        detailText = BuildOccurrenceScheduledBullet(taskOccurrences(occurrenceIndex))
 
         Dim taskKey As String
         taskKey = GetTaskOccurrenceKey(taskOccurrences(occurrenceIndex))
@@ -389,7 +389,7 @@ Private Sub AddMovementAndCriticalBuckets(ByRef dashboardBuckets As DashboardSum
         Dim extensionDetailText As String
 
         extensionWeekKey = BuildExtensionDueWeekKey(occurrence.originalWeek)
-        extensionDetailText = BuildExtensionDueDetailLine(occurrence)
+        extensionDetailText = BuildExtensionRaiseBullet(occurrence)
 
         AddOccurrenceToDashboardBucket _
             dashboardBuckets.ExtensionsRequired.Summary, _

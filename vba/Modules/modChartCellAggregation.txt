@@ -9,7 +9,10 @@ Option Explicit
 
 Public Type ChartCellAggregation
     CellCounts As Object
-    CellTasks As Object
+    CellExtensionBullets As Object
+    CellScheduledBullets As Object
+    CellExtensionCounts As Object
+    CellScheduledCounts As Object
     CellGrouped As Object
     CellPushed As Object
     CellPulled As Object
@@ -25,7 +28,10 @@ Public Function CreateChartCellAggregation() As ChartCellAggregation
     Dim aggregation As ChartCellAggregation
 
     Set aggregation.CellCounts = CreateObject("Scripting.Dictionary")
-    Set aggregation.CellTasks = CreateObject("Scripting.Dictionary")
+    Set aggregation.CellExtensionBullets = CreateObject("Scripting.Dictionary")
+    Set aggregation.CellScheduledBullets = CreateObject("Scripting.Dictionary")
+    Set aggregation.CellExtensionCounts = CreateObject("Scripting.Dictionary")
+    Set aggregation.CellScheduledCounts = CreateObject("Scripting.Dictionary")
     Set aggregation.CellGrouped = CreateObject("Scripting.Dictionary")
     Set aggregation.CellPushed = CreateObject("Scripting.Dictionary")
     Set aggregation.CellPulled = CreateObject("Scripting.Dictionary")
@@ -123,103 +129,91 @@ Private Sub AddOccurrenceToChartAggregation(ByRef aggregation As ChartCellAggreg
                                             ByVal cellKey As String, _
                                             ByRef occurrence As TaskOccurrence)
 
-    Dim taskLine As String
-    taskLine = BuildChartOccurrenceCommentLine(occurrence)
+    Dim extensionBullets As String
+    Dim scheduledBullets As String
+    Dim extensionCount As Long
+    Dim scheduledCount As Long
 
     If aggregation.CellCounts.Exists(cellKey) Then
-
+        extensionCount = CLng(aggregation.CellExtensionCounts(cellKey))
+        scheduledCount = CLng(aggregation.CellScheduledCounts(cellKey))
+        extensionBullets = CStr(aggregation.CellExtensionBullets(cellKey))
+        scheduledBullets = CStr(aggregation.CellScheduledBullets(cellKey))
         aggregation.CellCounts(cellKey) = aggregation.CellCounts(cellKey) + 1
-
-        aggregation.CellTasks(cellKey) = _
-            aggregation.CellTasks(cellKey) & vbLf & vbLf & _
-            CStr(aggregation.CellCounts(cellKey)) & ". " & taskLine
-
-        If occurrence.GroupedDirection <> 0 Then
-            aggregation.CellGrouped(cellKey) = occurrence.GroupedDirection
-        End If
-
-        If occurrence.wasAutoPushed Then aggregation.CellPushed(cellKey) = True
-        If occurrence.wasAutoPulled Then aggregation.CellPulled(cellKey) = True
-        If occurrence.isHighlighted Then aggregation.CellHighlighted(cellKey) = True
-
     Else
-
         aggregation.CellCounts.Add cellKey, 1
-        aggregation.CellTasks.Add cellKey, "1. " & taskLine
         aggregation.CellGrouped.Add cellKey, occurrence.GroupedDirection
         aggregation.CellPushed.Add cellKey, occurrence.wasAutoPushed
         aggregation.CellPulled.Add cellKey, occurrence.wasAutoPulled
         aggregation.CellHighlighted.Add cellKey, occurrence.isHighlighted
-
+        aggregation.CellExtensionCounts.Add cellKey, 0
+        aggregation.CellScheduledCounts.Add cellKey, 0
+        aggregation.CellExtensionBullets.Add cellKey, vbNullString
+        aggregation.CellScheduledBullets.Add cellKey, vbNullString
     End If
+
+    If occurrence.wasAutoPushed Then
+        extensionCount = extensionCount + 1
+        AppendCommentBullet extensionBullets, BuildExtensionRaiseBullet(occurrence)
+        aggregation.CellExtensionCounts(cellKey) = extensionCount
+        aggregation.CellExtensionBullets(cellKey) = extensionBullets
+        aggregation.CellPushed(cellKey) = True
+    Else
+        scheduledCount = scheduledCount + 1
+        AppendCommentBullet scheduledBullets, BuildOccurrenceScheduledBullet(occurrence)
+        aggregation.CellScheduledCounts(cellKey) = scheduledCount
+        aggregation.CellScheduledBullets(cellKey) = scheduledBullets
+    End If
+
+    If occurrence.GroupedDirection <> 0 Then
+        aggregation.CellGrouped(cellKey) = occurrence.GroupedDirection
+    End If
+
+    If occurrence.wasAutoPulled Then aggregation.CellPulled(cellKey) = True
+    If occurrence.isHighlighted Then aggregation.CellHighlighted(cellKey) = True
 
 End Sub
 
 
 '------------------------------------------------------------------------------
-' Purpose : Builds one chart comment line for an occurrence.
+' Purpose : Builds the structured comment text for one chart cell.
 '------------------------------------------------------------------------------
-Public Function BuildChartOccurrenceCommentLine(ByRef occurrence As TaskOccurrence) As String
+Public Function BuildChartCellStructuredComment(ByVal cellKey As String, _
+                                                ByRef aggregation As ChartCellAggregation) As String
 
-    Dim shortDescription As String
-    shortDescription = TruncateDesc(occurrence.taskDescription)
+    Dim extensionCount As Long
+    Dim scheduledCount As Long
+    Dim extensionBullets As String
+    Dim scheduledBullets As String
 
-    Dim taskLine As String
-
-    If occurrence.isHighlighted Then
-        taskLine = "*** " & occurrence.taskCode & " - " & shortDescription & " ***"
-    Else
-        taskLine = occurrence.taskCode & " - " & shortDescription
+    If aggregation.CellExtensionCounts.Exists(cellKey) Then
+        extensionCount = CLng(aggregation.CellExtensionCounts(cellKey))
+        extensionBullets = CStr(aggregation.CellExtensionBullets(cellKey))
     End If
 
-    taskLine = taskLine & RightAlignTag("[" & BuildChartDueTimeText(occurrence) & "]")
-
-    If occurrence.GroupedDirection = -1 Then
-        taskLine = taskLine & RightAlignTag( _
-            "[PULLED TO ALIGN by " & FormatOccurrenceGroupedAlignmentAmount(occurrence) & "]")
-    ElseIf occurrence.GroupedDirection = 1 Then
-        taskLine = taskLine & RightAlignTag( _
-            "[PUSHED TO ALIGN by " & FormatOccurrenceGroupedAlignmentAmount(occurrence) & "]")
+    If aggregation.CellScheduledCounts.Exists(cellKey) Then
+        scheduledCount = CLng(aggregation.CellScheduledCounts(cellKey))
+        scheduledBullets = CStr(aggregation.CellScheduledBullets(cellKey))
     End If
 
-    If occurrence.wasAutoPulled Then
-        taskLine = taskLine & RightAlignTag( _
-            "[PULLED " & FormatOccurrencePullAmount(occurrence) & _
-            " (" & Format$(occurrence.pullPercentUsed * 100, "0") & _
-            "%) to Maint]")
-    End If
-
-    If occurrence.wasAutoPushed Then
-        taskLine = taskLine & RightAlignTag(BuildChartExtensionTag(occurrence))
-    End If
-
-    BuildChartOccurrenceCommentLine = taskLine
+    BuildChartCellStructuredComment = BuildStructuredChartCellComment( _
+        extensionCount, _
+        extensionBullets, _
+        scheduledCount, _
+        scheduledBullets)
 
 End Function
 
 
 '------------------------------------------------------------------------------
-' Purpose : Builds the due-time text shown in chart comments.
+' Purpose : Legacy wrapper retained for any callers expecting a single-line entry.
 '------------------------------------------------------------------------------
-Private Function BuildChartDueTimeText(ByRef occurrence As TaskOccurrence) As String
+Public Function BuildChartOccurrenceCommentLine(ByRef occurrence As TaskOccurrence) As String
 
-    If occurrence.intervalType = "DD" Then
-
-        BuildChartDueTimeText = "Due " & _
-                                Format$(occurrence.firstDueDate, "DD/MM/YYYY")
-
+    If occurrence.wasAutoPushed Then
+        BuildChartOccurrenceCommentLine = BuildExtensionRaiseBullet(occurrence)
     Else
-
-        If occurrence.lifeRemaining < 0 Then
-            BuildChartDueTimeText = "Overdue by " & _
-                                    FormatHoursToHMM(Abs(occurrence.lifeRemaining)) & _
-                                    occurrence.intervalType
-        Else
-            BuildChartDueTimeText = "Due in " & _
-                                    FormatHoursToHMM(occurrence.lifeRemaining) & _
-                                    occurrence.intervalType
-        End If
-
+        BuildChartOccurrenceCommentLine = BuildOccurrenceScheduledBullet(occurrence)
     End If
 
 End Function
@@ -412,9 +406,7 @@ Private Sub WriteOneAggregatedChartCell(ByVal chartWs As Worksheet, _
         aggregation
 
     Dim taskText As String
-    taskText = CapCommentLength( _
-        aggregation.CellCounts(cellKey) & " task(s):" & vbLf & _
-        aggregation.CellTasks(cellKey))
+    taskText = CapCommentLength(BuildChartCellStructuredComment(cellKey, aggregation))
 
     SafeAddComment chartWs.Cells(chartRow, chartColumn), taskText
 
@@ -698,9 +690,7 @@ Private Sub CollectMaintenanceBlockCellData(ByVal chartWs As Worksheet, _
             End If
 
             mergedCommentText = mergedCommentText & _
-                RemoveChartCommentHeader( _
-                    chartWs.Cells(chartRow, chartColumn).Comment.Text, _
-                    CStr(chartWs.Cells(chartRow, chartColumn).Value))
+                chartWs.Cells(chartRow, chartColumn).Comment.Text
 
             chartWs.Cells(chartRow, chartColumn).Comment.Delete
 
@@ -816,8 +806,10 @@ Public Sub WriteChartExtensionDueRow(ByVal chartWs As Worksheet, _
 
             If weekDetails.Exists(weekKey) Then
                 SafeAddComment targetCell, CapCommentLength( _
-                    CStr(weekCounts(weekKey)) & " extension(s) to raise by " & weekKey & ":" & _
-                    vbLf & CStr(weekDetails(weekKey)))
+                    BuildExtensionDueWeekComment( _
+                        CLng(weekCounts(weekKey)), _
+                        weekKey, _
+                        CStr(weekDetails(weekKey))))
             End If
 
         End If
@@ -849,11 +841,11 @@ Private Sub CollectExtensionDueByWeek(ByRef taskOccurrences() As TaskOccurrence,
         weekKey = BuildExtensionDueWeekKey(occurrence.originalWeek)
 
         Dim detailLine As String
-        detailLine = BuildExtensionDueDetailLine(occurrence)
+        detailLine = BuildExtensionRaiseBullet(occurrence)
 
         If weekCounts.Exists(weekKey) Then
             weekCounts(weekKey) = weekCounts(weekKey) + 1
-            weekDetails(weekKey) = weekDetails(weekKey) & vbLf & vbLf & detailLine
+            weekDetails(weekKey) = weekDetails(weekKey) & vbLf & detailLine
         Else
             weekCounts.Add weekKey, 1
             weekDetails.Add weekKey, detailLine

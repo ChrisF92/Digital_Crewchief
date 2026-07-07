@@ -404,14 +404,10 @@ Private Function BuildExtensionDashboardCommentText(ByVal summaryDictionary As O
 
         If Len(result) > 0 Then result = result & vbLf & vbLf
 
-        result = result & "Raise by " & sortedKeys(lineIndex) & " - " & _
-                 CStr(summaryDictionary(sortedKeys(lineIndex))) & " extension(s):"
-
-        If Not detailDictionary Is Nothing Then
-            If detailDictionary.Exists(sortedKeys(lineIndex)) Then
-                result = result & vbLf & CStr(detailDictionary(sortedKeys(lineIndex)))
-            End If
-        End If
+        result = result & BuildDashboardExtensionWeekComment( _
+            sortedKeys(lineIndex), _
+            CLng(summaryDictionary(sortedKeys(lineIndex))), _
+            CStr(detailDictionary(sortedKeys(lineIndex))))
 
     Next lineIndex
 
@@ -613,7 +609,8 @@ Private Function BuildSummaryCommentText(ByVal summaryDictionary As Object, _
 
         If Len(result) > 0 Then result = result & vbLf & vbLf
 
-        result = result & CStr(key) & " - " & CStr(summaryDictionary(key)) & " task(s):"
+        result = result & CStr(key) & " (" & CStr(summaryDictionary(key)) & ")" & vbLf & vbLf & _
+                 "DUE (" & CStr(summaryDictionary(key)) & ")"
 
         If Not detailDictionary Is Nothing Then
             If detailDictionary.Exists(key) Then

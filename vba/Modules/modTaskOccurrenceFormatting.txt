@@ -8,8 +8,6 @@ Option Explicit
 
 '------------------------------------------------------------------------------
 ' Purpose : Builds a short interval label such as "HH 25", "E1 50", or "DD 180".
-' Input : occurrence - task occurrence to format.
-' Output : Display label for dashboard/chart summary buckets.
 '------------------------------------------------------------------------------
 Public Function BuildOccurrenceIntervalLabel(ByRef occurrence As TaskOccurrence) As String
 
@@ -26,8 +24,6 @@ End Function
 
 '------------------------------------------------------------------------------
 ' Purpose : Builds the due/life remaining text for a task occurrence.
-' Input : occurrence - task occurrence to format.
-' Output : Text such as "Due: 10/07/2026" or "Due: 25:30HH".
 '------------------------------------------------------------------------------
 Public Function BuildOccurrenceDueText(ByRef occurrence As TaskOccurrence) As String
 
@@ -43,42 +39,7 @@ End Function
 
 
 '------------------------------------------------------------------------------
-' Purpose : Builds the extension tag for a pushed task.
-' Input : occurrence - task occurrence to format.
-' Output : Extension tag, or blank if the occurrence was not pushed.
-'------------------------------------------------------------------------------
-Public Function BuildOccurrenceExtensionTag(ByRef occurrence As TaskOccurrence) As String
-
-    If Not occurrence.wasAutoPushed Then
-        BuildOccurrenceExtensionTag = vbNullString
-        Exit Function
-    End If
-
-    If occurrence.existingExtensionPercent > 0 Then
-
-        BuildOccurrenceExtensionTag = "[EXT total " & _
-            Format$( _
-                (occurrence.existingExtensionPercent + occurrence.extensionPercentUsed) * 100, _
-                "0") & _
-            "%; added " & _
-            Format$(occurrence.extensionPercentUsed * 100, "0") & _
-            "%]"
-
-    Else
-
-        BuildOccurrenceExtensionTag = "[EXT " & _
-            Format$(occurrence.extensionPercentUsed * 100, "0") & _
-            "%]"
-
-    End If
-
-End Function
-
-
-'------------------------------------------------------------------------------
 ' Purpose : Returns the absolute amount pulled forward for a maintenance pull.
-' Input : occurrence - task occurrence with pullPercentUsed populated.
-' Output : Hours for HH/E1/E2 tasks, days for DD tasks.
 '------------------------------------------------------------------------------
 Public Function GetOccurrencePullAmount(ByRef occurrence As TaskOccurrence) As Double
 
@@ -89,8 +50,6 @@ End Function
 
 '------------------------------------------------------------------------------
 ' Purpose : Formats a maintenance pull amount for display in comments.
-' Input : occurrence - pulled task occurrence.
-' Output : Text such as "12.5 hrs" or "14 days".
 '------------------------------------------------------------------------------
 Public Function FormatOccurrencePullAmount(ByRef occurrence As TaskOccurrence) As String
 
@@ -112,8 +71,6 @@ End Function
 
 '------------------------------------------------------------------------------
 ' Purpose : Returns the alignment distance between grouped original and scheduled weeks.
-' Input : occurrence - grouped task occurrence.
-' Output : Positive day count between original and scheduled week starts.
 '------------------------------------------------------------------------------
 Public Function GetOccurrenceGroupedAlignmentDays(ByRef occurrence As TaskOccurrence) As Long
 
@@ -124,8 +81,6 @@ End Function
 
 '------------------------------------------------------------------------------
 ' Purpose : Formats grouped alignment movement for chart comments.
-' Input : occurrence - grouped task occurrence.
-' Output : Text such as "14 days" or "0 days".
 '------------------------------------------------------------------------------
 Public Function FormatOccurrenceGroupedAlignmentAmount(ByRef occurrence As TaskOccurrence) As String
 
@@ -142,56 +97,7 @@ End Function
 
 
 '------------------------------------------------------------------------------
-' Purpose : Builds the extension-required tag shown in chart and dashboard comments.
-'------------------------------------------------------------------------------
-Public Function BuildChartExtensionTag(ByRef occurrence As TaskOccurrence) As String
-
-    If occurrence.existingExtensionPercent > 0 Then
-
-        If occurrence.intervalType = "HH" Or _
-           occurrence.intervalType = "E1" Or _
-           occurrence.intervalType = "E2" Then
-
-            BuildChartExtensionTag = _
-                "[EXT. REQ. FOR " & Format$(occurrence.originalWeek, "DD/MM/YYYY") & _
-                "; total " & _
-                Format$((occurrence.existingExtensionPercent + occurrence.extensionPercentUsed) * 100, "0") & _
-                "%; imported ext " & _
-                Format$(occurrence.existingExtensionAmount, "0.##") & _
-                " hrs; added " & _
-                Format$(occurrence.extensionPercentUsed * 100, "0") & _
-                "% to Maint]"
-
-        Else
-
-            BuildChartExtensionTag = _
-                "[EXT. REQ. FOR " & Format$(occurrence.originalWeek, "DD/MM/YYYY") & _
-                "; total " & _
-                Format$((occurrence.existingExtensionPercent + occurrence.extensionPercentUsed) * 100, "0") & _
-                "%; imported ext " & _
-                Format$(occurrence.existingExtensionAmount, "0.##") & _
-                " days; added " & _
-                Format$(occurrence.extensionPercentUsed * 100, "0") & _
-                "% to Maint]"
-
-        End If
-
-    Else
-
-        BuildChartExtensionTag = _
-            "[EXT. REQ. FOR " & Format$(occurrence.originalWeek, "DD/MM/YYYY") & _
-            "; " & Format$(occurrence.extensionPercentUsed * 100, "0") & _
-            "% to Maint]"
-
-    End If
-
-End Function
-
-
-'------------------------------------------------------------------------------
 ' Purpose : Returns the dashboard/chart summary key for an extension due week.
-' Input : originalWeek - Monday start of the week by which the extension must be raised.
-' Output : UK date label used to group extension actions.
 '------------------------------------------------------------------------------
 Public Function BuildExtensionDueWeekKey(ByVal originalWeek As Date) As String
 
@@ -201,72 +107,21 @@ End Function
 
 
 '------------------------------------------------------------------------------
-' Purpose : Builds one extension-due detail line for chart and dashboard summaries.
-'------------------------------------------------------------------------------
-Public Function BuildExtensionDueDetailLine(ByRef occurrence As TaskOccurrence) As String
-
-    Dim detailText As String
-
-    detailText = occurrence.taskCode & " - " & _
-                 TruncateDesc(occurrence.taskDescription) & _
-                 RightAlignTag("[" & BuildOccurrenceDueText(occurrence) & "]")
-
-    If occurrence.wasAutoPushed Then
-        detailText = detailText & RightAlignTag(BuildChartExtensionTag(occurrence))
-    End If
-
-    BuildExtensionDueDetailLine = detailText
-
-End Function
-
-
-'------------------------------------------------------------------------------
-' Purpose : Builds the pull-forward tag for a pulled task.
-' Input : occurrence - task occurrence to format.
-' Output : Pull tag, or blank if the occurrence was not pulled.
-'------------------------------------------------------------------------------
-Public Function BuildOccurrencePullTag(ByRef occurrence As TaskOccurrence) As String
-
-    If occurrence.wasAutoPulled Then
-        BuildOccurrencePullTag = "[PULLED " & _
-                                 FormatOccurrencePullAmount(occurrence) & _
-                                 " (" & Format$(occurrence.pullPercentUsed * 100, "0") & _
-                                 "%)]"
-    Else
-        BuildOccurrencePullTag = vbNullString
-    End If
-
-End Function
-
-
-'------------------------------------------------------------------------------
-' Purpose : Builds a full dashboard detail line for one occurrence.
-' Input : occurrence - task occurrence to format.
-' Output : Detail line used in dashboard comments.
+' Purpose : Builds a dashboard detail bullet for one occurrence.
 '------------------------------------------------------------------------------
 Public Function BuildDashboardOccurrenceDetail(ByRef occurrence As TaskOccurrence) As String
 
-    Dim detailText As String
+    BuildDashboardOccurrenceDetail = BuildOccurrenceScheduledBullet(occurrence)
 
-    detailText = occurrence.taskCode & " - " & _
-                 TruncateDesc(occurrence.taskDescription) & _
-                 RightAlignTag("[" & BuildOccurrenceDueText(occurrence) & "]")
+End Function
 
-    Dim extensionTag As String
-    extensionTag = BuildOccurrenceExtensionTag(occurrence)
 
-    If Len(extensionTag) > 0 Then
-        detailText = detailText & RightAlignTag(extensionTag)
-    End If
+'------------------------------------------------------------------------------
+' Purpose : Builds one extension-due bullet for chart and dashboard summaries.
+'------------------------------------------------------------------------------
+Public Function BuildExtensionDueDetailLine(ByRef occurrence As TaskOccurrence) As String
 
-    Dim pullTag As String
-    pullTag = BuildOccurrencePullTag(occurrence)
-
-    If Len(pullTag) > 0 Then
-        detailText = detailText & RightAlignTag(pullTag)
-    End If
-
-    BuildDashboardOccurrenceDetail = detailText
+    BuildExtensionDueDetailLine = BuildExtensionRaiseBullet(occurrence)
 
 End Function
 
@@ -274,12 +129,6 @@ End Function
 '------------------------------------------------------------------------------
 ' Purpose : Adds one occurrence to a dashboard summary bucket if it has not
 ' already been added.
-' Input : summaryDictionary - dictionary containing summary counts.
-' detailDictionary - dictionary containing detailed task lines.
-' taskCodeDictionary - dictionary used to prevent duplicate task keys.
-' taskKey - unique occurrence key.
-' intervalLabel - bucket label, e.g. "HH 25".
-' detailText - formatted dashboard detail line.
 '------------------------------------------------------------------------------
 Public Sub AddOccurrenceToDashboardBucket(ByVal summaryDictionary As Object, _
                                           ByVal detailDictionary As Object, _
@@ -294,5 +143,4 @@ Public Sub AddOccurrenceToDashboardBucket(ByVal summaryDictionary As Object, _
     taskCodeDictionary.Add taskKey, True
 
 End Sub
-
 
