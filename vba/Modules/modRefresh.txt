@@ -58,7 +58,7 @@ Public Sub RefreshAll()
 
         failedTail = tailNumbers(aircraftIndex)
 
-        RefreshOneAircraft _
+        modAircraftRefresh.RefreshAircraftAtIndex _
             aircraftIndex, _
             aircraftRoster, _
             settings, _

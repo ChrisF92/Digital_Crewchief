@@ -16,7 +16,7 @@ Option Explicit
 ' weekStartDates - display week start dates.
 ' dashboardWs - Dashboard worksheet.
 '------------------------------------------------------------------------------
-Public Sub RefreshOneAircraft(ByVal aircraftIndex As Long, _
+Public Sub RefreshAircraftAtIndex(ByVal aircraftIndex As Long, _
                               ByRef roster As aircraftRoster, _
                               ByRef settings As PlannerSettings, _
                               ByRef rates As plannerRates, _
