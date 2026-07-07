@@ -11,6 +11,7 @@ Public Type TaskOccurrenceBuildResult
     totalOccurrences As Long
     totalImported As Long
     totalShown As Long
+    totalDeferredFaults As Long
 End Type
 
 
@@ -45,6 +46,7 @@ Public Function BuildTaskOccurrencesForAircraft(ByVal importWs As Worksheet, _
     result.totalOccurrences = 0
     result.totalImported = 0
     result.totalShown = 0
+    result.totalDeferredFaults = 0
 
     Dim importRow As Long
 
@@ -56,6 +58,20 @@ Public Function BuildTaskOccurrencesForAircraft(ByVal importWs As Worksheet, _
 
         Dim taskRecord As ImportTaskRecord
         taskRecord = ReadImportTaskRecord(importWs, importRow)
+
+        If IsDeferredFaultTaskCode(taskRecord.taskCode) Then
+            AddDeferredFaultOccurrence _
+                result, _
+                taskRecord, _
+                settings, _
+                displayStart, _
+                displayEnd, _
+                weekStartDates, _
+                weekHHRates, _
+                weekE1Rates, _
+                weekE2Rates
+            GoTo NextImportRow
+        End If
 
         If Not taskRecord.ShowInPlanner Then GoTo NextImportRow
 
@@ -373,6 +389,113 @@ Private Sub AddSingleVisibleOccurrence(ByRef result As TaskOccurrenceBuildResult
         isOverdueAtDisplayStart)
 
 End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Adds one deferred PT2/PT3 fault occurrence without reforecasting.
+'------------------------------------------------------------------------------
+Private Sub AddDeferredFaultOccurrence(ByRef result As TaskOccurrenceBuildResult, _
+                                       ByRef taskRecord As ImportTaskRecord, _
+                                       ByRef settings As PlannerSettings, _
+                                       ByVal displayStart As Date, _
+                                       ByVal displayEnd As Date, _
+                                       ByRef weekStartDates() As Date, _
+                                       ByRef weekHHRates() As Double, _
+                                       ByRef weekE1Rates() As Double, _
+                                       ByRef weekE2Rates() As Double)
+
+    Dim firstDueDate As Date
+
+    If Not TryGetDeferredFaultDueDate( _
+        taskRecord, _
+        settings, _
+        weekStartDates, _
+        weekHHRates, _
+        weekE1Rates, _
+        weekE2Rates, _
+        firstDueDate) Then
+
+        Exit Sub
+    End If
+
+    Dim naturalWeekStart As Date
+    naturalWeekStart = DisplayWeekStart(firstDueDate, displayStart)
+
+    If naturalWeekStart < displayStart Or naturalWeekStart > displayEnd Then Exit Sub
+
+    result.totalOccurrences = result.totalOccurrences + 1
+    result.totalDeferredFaults = result.totalDeferredFaults + 1
+    EnsureTaskOccurrenceCapacity result.taskOccurrences, result.totalOccurrences
+
+    result.taskOccurrences(result.totalOccurrences) = BuildTaskOccurrence( _
+        taskRecord.serialNumber, _
+        taskRecord.TaskSequence, _
+        taskRecord.lifeRemaining, _
+        taskRecord.IntervalTypeNormalised, _
+        taskRecord.ActualInterval, _
+        naturalWeekStart, _
+        naturalWeekStart, _
+        firstDueDate, _
+        False, _
+        0, _
+        False, _
+        0, _
+        taskRecord.taskCode, _
+        taskRecord.taskDescription, _
+        False, _
+        0, _
+        0, _
+        (firstDueDate < displayStart), _
+        True)
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Calculates the first due date for a deferred PT2/PT3 fault.
+'------------------------------------------------------------------------------
+Private Function TryGetDeferredFaultDueDate(ByRef taskRecord As ImportTaskRecord, _
+                                            ByRef settings As PlannerSettings, _
+                                            ByRef weekStartDates() As Date, _
+                                            ByRef weekHHRates() As Double, _
+                                            ByRef weekE1Rates() As Double, _
+                                            ByRef weekE2Rates() As Double, _
+                                            ByRef firstDueDate As Date) As Boolean
+
+    If IsDeferredFaultHourBased(taskRecord.taskCode) Then
+
+        Dim rateType As String
+
+        If IsHourBasedIntervalType(taskRecord.IntervalTypeNormalised) Then
+            rateType = taskRecord.IntervalTypeNormalised
+        Else
+            rateType = "HH"
+        End If
+
+        firstDueDate = CalcHourDueDate( _
+            taskRecord.lifeRemaining, _
+            rateType, _
+            weekStartDates, _
+            weekHHRates, _
+            weekE1Rates, _
+            weekE2Rates, _
+            settings.displayWeeksShown, _
+            settings.forecastStart)
+
+        TryGetDeferredFaultDueDate = (firstDueDate <> #12/31/9999#)
+
+    ElseIf taskRecord.HasProjectedDueDate Then
+
+        firstDueDate = taskRecord.ProjectedDueDate
+        TryGetDeferredFaultDueDate = True
+
+    Else
+
+        TryGetDeferredFaultDueDate = False
+
+    End If
+
+End Function
 
 
 '------------------------------------------------------------------------------

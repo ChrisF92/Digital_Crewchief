@@ -68,7 +68,7 @@ Public Sub RefreshAll()
 
     Next aircraftIndex
 
-    With dashWs.Range("A4:K" & 4 + Application.Max(aircraftCount, 1))
+    With dashWs.Range("A4:L" & 4 + Application.Max(aircraftCount, 1))
         .Font.Name = "Arial"
         .Font.Size = 10
         .VerticalAlignment = xlTop

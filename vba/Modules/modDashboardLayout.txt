@@ -12,8 +12,8 @@ Private Const DASHBOARD_SHEET_NAME As String = "Dashboard"
 Private Const DASHBOARD_BANNER_ROW As Long = 3
 Public Const DASHBOARD_HEADER_ROW As Long = 4
 Private Const DASHBOARD_FIRST_COL As Long = 1
-Private Const DASHBOARD_LAST_COL As Long = 11
-Private Const DASHBOARD_COL_REIMPORT As Long = 11
+Private Const DASHBOARD_LAST_COL As Long = 12
+Private Const DASHBOARD_COL_REIMPORT As Long = 12
 
 Public Const DASHBOARD_REIMPORT_BTN_PREFIX As String = "dashReimport_"
 
@@ -89,6 +89,7 @@ Public Sub WriteDashboardHeaders(ByVal dashboardWs As Worksheet)
         "Due Next Cycle", _
         "Due Next Maint Cycle", _
         "Extensions by Week", _
+        "PT2/3s Due", _
         "Critical Tasks", _
         "Chart", _
         "Last Import", _
@@ -129,10 +130,11 @@ Public Sub ApplyDashboardColumnWidths(ByVal dashboardWs As Worksheet)
     dashboardWs.Columns("E").ColumnWidth = 32
     dashboardWs.Columns("F").ColumnWidth = 34
     dashboardWs.Columns("G").ColumnWidth = 28
-    dashboardWs.Columns("H").ColumnWidth = 28
-    dashboardWs.Columns("I").ColumnWidth = 16
+    dashboardWs.Columns("H").ColumnWidth = 24
+    dashboardWs.Columns("I").ColumnWidth = 28
     dashboardWs.Columns("J").ColumnWidth = 16
-    dashboardWs.Columns("K").ColumnWidth = 14
+    dashboardWs.Columns("K").ColumnWidth = 16
+    dashboardWs.Columns("L").ColumnWidth = 14
 
 End Sub
 
@@ -284,6 +286,11 @@ Public Sub WriteAircraftDashboardRow(ByVal dashboardWs As Worksheet, _
     Set extensionSummary = dashboardBuckets.ExtensionsRequired.Summary
     Set extensionDetails = dashboardBuckets.ExtensionsRequired.Details
 
+    Dim deferredFaultSummary As Object
+    Dim deferredFaultDetails As Object
+    Set deferredFaultSummary = dashboardBuckets.DeferredFaultsDue.Summary
+    Set deferredFaultDetails = dashboardBuckets.DeferredFaultsDue.Details
+
     Dim criticalSummary As Object
     Dim criticalDetails As Object
     Set criticalSummary = dashboardBuckets.CriticalTasks.Summary
@@ -293,12 +300,121 @@ Public Sub WriteAircraftDashboardRow(ByVal dashboardWs As Worksheet, _
     WriteDashboardSummaryCell dashboardWs.Cells(dashboardRow, 5), maintenanceSummary, maintenanceDetails
     WriteDashboardSummaryCell dashboardWs.Cells(dashboardRow, 6), nextMaintenanceSummary, nextMaintenanceDetails
     WriteExtensionDashboardSummaryCell dashboardWs.Cells(dashboardRow, 7), extensionSummary, extensionDetails
-    WriteDashboardSummaryCell dashboardWs.Cells(dashboardRow, 8), criticalSummary, criticalDetails
+    WriteDeferredFaultDashboardSummaryCell dashboardWs.Cells(dashboardRow, 8), deferredFaultSummary, deferredFaultDetails
+    WriteDashboardSummaryCell dashboardWs.Cells(dashboardRow, 9), criticalSummary, criticalDetails
 
-    AddDashboardSheetLink dashboardWs.Cells(dashboardRow, 9), chartWs, "Open Chart"
-    WriteDashboardImportCell dashboardWs.Cells(dashboardRow, 10), importWs
+    AddDashboardSheetLink dashboardWs.Cells(dashboardRow, 10), chartWs, "Open Chart"
+    WriteDashboardImportCell dashboardWs.Cells(dashboardRow, 11), importWs
 
     FormatAircraftDashboardRow dashboardWs, dashboardRow
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Writes the PT2/PT3 deferred-fault dashboard cell.
+'------------------------------------------------------------------------------
+Private Sub WriteDeferredFaultDashboardSummaryCell(ByVal targetCell As Range, _
+                                                   ByVal summaryDictionary As Object, _
+                                                   ByVal detailDictionary As Object)
+
+    ClearCellComment targetCell
+
+    With targetCell
+        .Value = vbNullString
+        .WrapText = True
+        .VerticalAlignment = xlCenter
+        .HorizontalAlignment = xlLeft
+        .Interior.ColorIndex = xlNone
+    End With
+
+    If summaryDictionary Is Nothing Then Exit Sub
+    If summaryDictionary.Count = 0 Then Exit Sub
+
+    targetCell.Value = BuildDeferredFaultDashboardDisplayText(summaryDictionary)
+    ApplyDeferredFaultDashboardFill targetCell
+
+    Dim commentText As String
+    commentText = BuildDeferredFaultDashboardCommentText(summaryDictionary, detailDictionary)
+
+    If Len(commentText) > 0 Then
+        SafeAddComment targetCell, commentText
+    End If
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds compact visible text for PT2/PT3 faults grouped by due week.
+'------------------------------------------------------------------------------
+Private Function BuildDeferredFaultDashboardDisplayText(ByVal summaryDictionary As Object) As String
+
+    Const MAX_VISIBLE_LINES As Long = 3
+
+    Dim sortedKeys() As String
+    sortedKeys = SortExtensionWeekKeys(summaryDictionary)
+
+    Dim result As String
+    Dim lineIndex As Long
+    Dim hiddenLineCount As Long
+
+    hiddenLineCount = UBound(sortedKeys) - MAX_VISIBLE_LINES
+
+    For lineIndex = 1 To UBound(sortedKeys)
+
+        If lineIndex > MAX_VISIBLE_LINES Then
+            If hiddenLineCount > 0 Then
+                result = result & vbLf & "+ " & CStr(hiddenLineCount) & " more week(s)..."
+            End If
+            Exit For
+        End If
+
+        If Len(result) > 0 Then result = result & vbLf
+
+        result = result & sortedKeys(lineIndex) & ": " & _
+                 CStr(summaryDictionary(sortedKeys(lineIndex)))
+
+    Next lineIndex
+
+    BuildDeferredFaultDashboardDisplayText = result
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds the hover comment for PT2/PT3 faults grouped by due week.
+'------------------------------------------------------------------------------
+Private Function BuildDeferredFaultDashboardCommentText(ByVal summaryDictionary As Object, _
+                                                        ByVal detailDictionary As Object) As String
+
+    Dim sortedKeys() As String
+    sortedKeys = SortExtensionWeekKeys(summaryDictionary)
+
+    Dim result As String
+    Dim lineIndex As Long
+
+    For lineIndex = 1 To UBound(sortedKeys)
+
+        If Len(result) > 0 Then result = result & vbLf & vbLf
+
+        result = result & BuildDeferredFaultWeekComment( _
+            CLng(summaryDictionary(sortedKeys(lineIndex))), _
+            sortedKeys(lineIndex), _
+            CStr(detailDictionary(sortedKeys(lineIndex))))
+
+    Next lineIndex
+
+    BuildDeferredFaultDashboardCommentText = result
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Applies fill colour to a PT2/PT3 dashboard summary cell.
+'------------------------------------------------------------------------------
+Private Sub ApplyDeferredFaultDashboardFill(ByVal targetCell As Range)
+
+    targetCell.Interior.Color = CLR_PT23_DUE
 
 End Sub
 
@@ -710,9 +826,11 @@ Private Sub FormatAircraftDashboardRow(ByVal dashboardWs As Worksheet, _
     dashboardWs.Cells(dashboardRow, 7).WrapText = True
     dashboardWs.Cells(dashboardRow, 8).WrapText = True
     
-    dashboardWs.Cells(dashboardRow, 9).HorizontalAlignment = xlCenter
+    dashboardWs.Cells(dashboardRow, 9).HorizontalAlignment = xlLeft
+    dashboardWs.Cells(dashboardRow, 9).WrapText = True
     dashboardWs.Cells(dashboardRow, 10).HorizontalAlignment = xlCenter
     dashboardWs.Cells(dashboardRow, 11).HorizontalAlignment = xlCenter
+    dashboardWs.Cells(dashboardRow, 12).HorizontalAlignment = xlCenter
 
     dashboardWs.Rows(dashboardRow).RowHeight = 48
 

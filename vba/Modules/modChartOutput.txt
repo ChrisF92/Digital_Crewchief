@@ -81,6 +81,13 @@ Public Sub PopulateAircraftChart(ByVal chartWs As Worksheet, _
         chartWs, _
         chartAggregation
 
+    WriteChartPT23DueRow _
+        chartWs, _
+        taskOccurrences, _
+        totalOccurrences, _
+        settings, _
+        weekStartDates
+
     WriteChartExtensionDueRow _
         chartWs, _
         taskOccurrences, _

@@ -13,8 +13,9 @@ Public Const CHART_IMPORT_WARNING_CELL As String = "D1"
 
 Public Const CHART_HEADER_ROW As Long = 3
 Public Const CHART_DATE_ROW As Long = 4
-Public Const CHART_EXT_ROW As Long = 5
-Public Const CHART_FIRST_TASK_ROW As Long = 6
+Public Const CHART_PT23_ROW As Long = 5
+Public Const CHART_EXT_ROW As Long = 6
+Public Const CHART_FIRST_TASK_ROW As Long = 7
 
 Public Const CHART_COL_TYPE As Long = 1
 Public Const CHART_COL_INTERVAL As Long = 2
@@ -105,6 +106,14 @@ Public Sub WriteAircraftChartFixedHeaders(ByVal chartWs As Worksheet, _
         .Cells(CHART_HEADER_ROW, CHART_COL_DESCRIPTION).Value = "Description"
 
         With .Range( _
+            .Cells(CHART_PT23_ROW, CHART_COL_TYPE), _
+            .Cells(CHART_PT23_ROW, CHART_COL_DESCRIPTION))
+            .Merge
+            .Value = "PT2/3s Due"
+            .HorizontalAlignment = xlCenter
+        End With
+
+        With .Range( _
             .Cells(CHART_EXT_ROW, CHART_COL_TYPE), _
             .Cells(CHART_EXT_ROW, CHART_COL_DESCRIPTION))
             .Merge
@@ -139,6 +148,7 @@ Public Sub WriteAircraftChartFixedHeaders(ByVal chartWs As Worksheet, _
 
         .Rows(CHART_HEADER_ROW).RowHeight = 30
         .Rows(CHART_DATE_ROW).RowHeight = 20
+        .Rows(CHART_PT23_ROW).RowHeight = 18
         .Rows(CHART_EXT_ROW).RowHeight = 18
 
     End With

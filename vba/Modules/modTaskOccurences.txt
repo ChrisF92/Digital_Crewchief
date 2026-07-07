@@ -48,6 +48,8 @@ Public Type TaskOccurrence
 
     isOverdueAtDisplayStart As Boolean
 
+    isDeferredFault As Boolean
+
 End Type
 
 
@@ -108,7 +110,8 @@ Public Function BuildTaskOccurrence(ByVal serialNumber As String, _
                                     ByVal isHighlighted As Boolean, _
                                     ByVal existingExtensionPercent As Double, _
                                     ByVal existingExtensionAmount As Double, _
-                                    ByVal isOverdueAtDisplayStart As Boolean) As TaskOccurrence
+                                    ByVal isOverdueAtDisplayStart As Boolean, _
+                                    Optional ByVal isDeferredFault As Boolean = False) As TaskOccurrence
 
     Dim occurrence As TaskOccurrence
 
@@ -141,6 +144,7 @@ Public Function BuildTaskOccurrence(ByVal serialNumber As String, _
     occurrence.existingExtensionAmount = existingExtensionAmount
 
     occurrence.isOverdueAtDisplayStart = isOverdueAtDisplayStart
+    occurrence.isDeferredFault = isDeferredFault
 
     BuildTaskOccurrence = occurrence
 
@@ -158,6 +162,17 @@ Public Function GetTaskOccurrenceKey(ByRef occurrence As TaskOccurrence) As Stri
         occurrence.taskCode & "|" & _
         occurrence.serialNumber & "|" & _
         occurrence.sequenceNumber
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns the unique key for a deferred fault occurrence.
+'------------------------------------------------------------------------------
+Public Function GetDeferredFaultOccurrenceKey(ByRef occurrence As TaskOccurrence) As String
+
+    GetDeferredFaultOccurrenceKey = _
+        UCase$(Trim$(occurrence.taskCode)) & "|" & Trim$(occurrence.sequenceNumber)
 
 End Function
 

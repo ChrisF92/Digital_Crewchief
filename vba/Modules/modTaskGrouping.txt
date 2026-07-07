@@ -249,6 +249,8 @@ Private Function GetGroupableOccurrenceIndexes(ByRef taskOccurrences() As TaskOc
 
     For occurrenceIndex = 1 To totalOccurrences
 
+        If taskOccurrences(occurrenceIndex).isDeferredFault Then GoTo NextGroupableOccurrence
+
         If BuildTaskGroupingKey(taskOccurrences(occurrenceIndex)) = groupKey Then
 
             If Not IsNoPullTaskCode(taskOccurrences(occurrenceIndex).taskCode) Then
@@ -258,6 +260,7 @@ Private Function GetGroupableOccurrenceIndexes(ByRef taskOccurrences() As TaskOc
 
         End If
 
+NextGroupableOccurrence:
     Next occurrenceIndex
 
     GetGroupableOccurrenceIndexes = groupedIndexes

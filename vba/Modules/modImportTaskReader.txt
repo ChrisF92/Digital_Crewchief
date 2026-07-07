@@ -120,6 +120,45 @@ End Function
 
 
 '------------------------------------------------------------------------------
+' Purpose : Returns True when the task code is a deferred PT2/PT3 fault.
+'------------------------------------------------------------------------------
+Public Function IsDeferredFaultTaskCode(ByVal taskCode As String) As Boolean
+
+    Select Case UCase$(Trim$(taskCode))
+
+        Case "PT2-D", "PT2-H", "PT3-D", "PT3-H"
+            IsDeferredFaultTaskCode = True
+
+        Case Else
+            IsDeferredFaultTaskCode = False
+
+    End Select
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns True when a deferred fault uses hour-based due logic.
+'------------------------------------------------------------------------------
+Public Function IsDeferredFaultHourBased(ByVal taskCode As String) As Boolean
+
+    IsDeferredFaultHourBased = (Right$(UCase$(Trim$(taskCode)), 2) = "-H")
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds the display key for a deferred fault occurrence.
+'------------------------------------------------------------------------------
+Public Function BuildDeferredFaultDisplayKey(ByVal taskCode As String, _
+                                            ByVal taskSequence As String) As String
+
+    BuildDeferredFaultDisplayKey = UCase$(Trim$(taskCode)) & " Seq " & Trim$(taskSequence)
+
+End Function
+
+
+'------------------------------------------------------------------------------
 ' Purpose : Returns True if the task type is hour/counter based.
 ' Input : normalisedIntervalType - planner interval type.
 '------------------------------------------------------------------------------

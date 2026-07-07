@@ -29,6 +29,8 @@ Public Function BuildChartTaskRows(ByRef taskOccurrences() As TaskOccurrence, _
 
     For occurrenceIndex = 1 To totalOccurrences
 
+        If taskOccurrences(occurrenceIndex).isDeferredFault Then GoTo NextOccurrence
+
         Dim pairKey As String
         pairKey = BuildChartPairKey( _
             taskOccurrences(occurrenceIndex).intervalType, _

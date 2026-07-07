@@ -33,6 +33,7 @@ Public Type DashboardSummaryBuckets
     DueNextCycle As DashboardSummaryBucket
     DueNextMaintenanceCycle As DashboardSummaryBucket
     ExtensionsRequired As DashboardSummaryBucket
+    DeferredFaultsDue As DashboardSummaryBucket
     PulledTasks As DashboardSummaryBucket
     CriticalTasks As DashboardSummaryBucket
 End Type
@@ -50,6 +51,7 @@ Public Function CreateDashboardSummaryBuckets() As DashboardSummaryBuckets
     buckets.DueNextCycle = CreateDashboardSummaryBucket()
     buckets.DueNextMaintenanceCycle = CreateDashboardSummaryBucket()
     buckets.ExtensionsRequired = CreateDashboardSummaryBucket()
+    buckets.DeferredFaultsDue = CreateDashboardSummaryBucket()
     buckets.PulledTasks = CreateDashboardSummaryBucket()
     buckets.CriticalTasks = CreateDashboardSummaryBucket()
 
@@ -109,6 +111,8 @@ Public Sub ClassifyDashboardOccurrences(ByRef dashboardBuckets As DashboardSumma
 
     For occurrenceIndex = 1 To totalOccurrences
 
+        If taskOccurrences(occurrenceIndex).isDeferredFault Then GoTo NextOccurrence
+
         Dim dashboardWeekIndex As Long
         dashboardWeekIndex = FindDisplayWeekIndex( _
             taskOccurrences(occurrenceIndex).scheduledWeek, _
@@ -167,6 +171,59 @@ Public Sub ClassifyDashboardOccurrences(ByRef dashboardBuckets As DashboardSumma
             detailText
 
 NextOccurrence:
+    Next occurrenceIndex
+
+    ClassifyDeferredFaultOccurrences _
+        dashboardBuckets, _
+        taskOccurrences, _
+        totalOccurrences, _
+        settings, _
+        weekStartDates
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Classifies deferred PT2/PT3 faults into the dashboard bucket.
+'------------------------------------------------------------------------------
+Public Sub ClassifyDeferredFaultOccurrences(ByRef dashboardBuckets As DashboardSummaryBuckets, _
+                                            ByRef taskOccurrences() As TaskOccurrence, _
+                                            ByVal totalOccurrences As Long, _
+                                            ByRef settings As PlannerSettings, _
+                                            ByRef weekStartDates() As Date)
+
+    Dim occurrenceIndex As Long
+
+    For occurrenceIndex = 1 To totalOccurrences
+
+        If Not taskOccurrences(occurrenceIndex).isDeferredFault Then GoTo NextDeferredOccurrence
+
+        Dim dashboardWeekIndex As Long
+        dashboardWeekIndex = FindDisplayWeekIndex( _
+            taskOccurrences(occurrenceIndex).scheduledWeek, _
+            weekStartDates, _
+            settings.displayWeeksShown)
+
+        If dashboardWeekIndex = 0 Then GoTo NextDeferredOccurrence
+
+        Dim weekKey As String
+        weekKey = BuildExtensionDueWeekKey(taskOccurrences(occurrenceIndex).scheduledWeek)
+
+        Dim detailText As String
+        detailText = BuildDeferredFaultBullet(taskOccurrences(occurrenceIndex))
+
+        Dim taskKey As String
+        taskKey = GetDeferredFaultOccurrenceKey(taskOccurrences(occurrenceIndex))
+
+        AddOccurrenceToDashboardBucket _
+            dashboardBuckets.DeferredFaultsDue.Summary, _
+            dashboardBuckets.DeferredFaultsDue.Details, _
+            dashboardBuckets.DeferredFaultsDue.TaskKeys, _
+            taskKey, _
+            weekKey, _
+            detailText
+
+NextDeferredOccurrence:
     Next occurrenceIndex
 
 End Sub

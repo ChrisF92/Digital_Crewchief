@@ -71,6 +71,8 @@ Public Function BuildChartCellAggregation(ByRef taskOccurrences() As TaskOccurre
 
     For occurrenceIndex = 1 To totalOccurrences
 
+        If taskOccurrences(occurrenceIndex).isDeferredFault Then GoTo NextOccurrence
+
         Dim pairKey As String
         pairKey = BuildChartPairKey( _
             taskOccurrences(occurrenceIndex).intervalType, _
@@ -712,13 +714,126 @@ End Sub
 
 
 '------------------------------------------------------------------------------
+' Purpose : Writes the per-week PT2/PT3 deferred-fault summary row on a chart.
+'------------------------------------------------------------------------------
+Public Sub WriteChartPT23DueRow(ByVal chartWs As Worksheet, _
+                                ByRef taskOccurrences() As TaskOccurrence, _
+                                ByVal totalOccurrences As Long, _
+                                ByRef settings As PlannerSettings, _
+                                ByRef weekStartDates() As Date)
+
+    Dim weekCounts As Object
+    Dim weekDetails As Object
+
+    Set weekCounts = CreateObject("Scripting.Dictionary")
+    Set weekDetails = CreateObject("Scripting.Dictionary")
+
+    CollectPT23DueByWeek _
+        taskOccurrences, _
+        totalOccurrences, _
+        weekCounts, _
+        weekDetails
+
+    Dim weekIndex As Long
+
+    For weekIndex = 1 To settings.displayWeeksShown
+
+        Dim targetColumn As Long
+        targetColumn = CHART_FIRST_WEEK_COL + weekIndex - 1
+
+        Dim targetCell As Range
+        Set targetCell = chartWs.Cells(CHART_PT23_ROW, targetColumn)
+
+        With targetCell
+            .Value = vbNullString
+            .Interior.ColorIndex = xlNone
+            .Font.Name = "Arial"
+            .Font.Size = 8
+            .Font.Bold = False
+            .Font.Color = RGB(0, 0, 0)
+            .HorizontalAlignment = xlCenter
+            .VerticalAlignment = xlCenter
+
+            With .Borders
+                .LineStyle = xlContinuous
+                .Color = RGB(200, 200, 200)
+                .Weight = xlThin
+            End With
+        End With
+
+        On Error Resume Next
+        If Not targetCell.Comment Is Nothing Then targetCell.Comment.Delete
+        On Error GoTo 0
+
+        Dim weekKey As String
+        weekKey = BuildExtensionDueWeekKey(weekStartDates(weekIndex))
+
+        If weekCounts.Exists(weekKey) Then
+
+            With targetCell
+                .Value = weekCounts(weekKey)
+                .Font.Bold = True
+                .Font.Color = RGB(128, 64, 0)
+                .Interior.Color = CLR_PT23_DUE
+            End With
+
+            If weekDetails.Exists(weekKey) Then
+                SafeAddComment targetCell, _
+                    BuildDeferredFaultWeekComment( _
+                        CLng(weekCounts(weekKey)), _
+                        weekKey, _
+                        CStr(weekDetails(weekKey)))
+            End If
+
+        End If
+
+    Next weekIndex
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Aggregates deferred PT2/PT3 faults by scheduled due week.
+'------------------------------------------------------------------------------
+Private Sub CollectPT23DueByWeek(ByRef taskOccurrences() As TaskOccurrence, _
+                                 ByVal totalOccurrences As Long, _
+                                 ByVal weekCounts As Object, _
+                                 ByVal weekDetails As Object)
+
+    Dim occurrenceIndex As Long
+
+    For occurrenceIndex = 1 To totalOccurrences
+
+        If Not taskOccurrences(occurrenceIndex).isDeferredFault Then GoTo NextDeferredOccurrence
+
+        Dim weekKey As String
+        weekKey = BuildExtensionDueWeekKey(taskOccurrences(occurrenceIndex).scheduledWeek)
+
+        Dim detailLine As String
+        detailLine = BuildDeferredFaultBullet(taskOccurrences(occurrenceIndex))
+
+        If weekCounts.Exists(weekKey) Then
+            weekCounts(weekKey) = weekCounts(weekKey) + 1
+            weekDetails(weekKey) = weekDetails(weekKey) & vbLf & detailLine
+        Else
+            weekCounts.Add weekKey, 1
+            weekDetails.Add weekKey, detailLine
+        End If
+
+NextDeferredOccurrence:
+    Next occurrenceIndex
+
+End Sub
+
+
+'------------------------------------------------------------------------------
 ' Purpose : Writes the per-week extension-due summary row on an aircraft chart.
 ' Input : chartWs - aircraft chart worksheet.
 ' taskOccurrences - populated task occurrence records.
 ' totalOccurrences - number of populated occurrences.
 ' settings - planner settings.
 ' weekStartDates - visible planner week start dates.
-' Notes : Row 5 shows how many extensions must be raised by each week, regardless
+' Notes : Row 6 shows how many extensions must be raised by each week, regardless
 ' of where the task was scheduled after auto-push.
 '------------------------------------------------------------------------------
 Public Sub WriteChartExtensionDueRow(ByVal chartWs As Worksheet, _
@@ -813,6 +928,7 @@ Private Sub CollectExtensionDueByWeek(ByRef taskOccurrences() As TaskOccurrence,
         occurrence = taskOccurrences(occurrenceIndex)
 
         If Not occurrence.wasAutoPushed Then GoTo NextOccurrence
+        If occurrence.isDeferredFault Then GoTo NextOccurrence
         If CLng(occurrence.originalWeek) = CLng(occurrence.scheduledWeek) Then GoTo NextOccurrence
 
         Dim weekKey As String

@@ -638,3 +638,34 @@ Public Function BuildDashboardExtensionWeekComment(ByVal weekKey As String, _
 
 End Function
 
+
+'------------------------------------------------------------------------------
+' Purpose : Builds a bullet for one deferred PT2/PT3 fault occurrence.
+'------------------------------------------------------------------------------
+Public Function BuildDeferredFaultBullet(ByRef occurrence As TaskOccurrence) As String
+
+      BuildDeferredFaultBullet = COMMENT_BULLET & _
+        BuildDeferredFaultDisplayKey(occurrence.taskCode, occurrence.sequenceNumber) & _
+        " | " & BuildOccurrenceTimeRemainingText(occurrence)
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Builds the chart/dashboard comment for one PT2/PT3 due week.
+'------------------------------------------------------------------------------
+Public Function BuildDeferredFaultWeekComment(ByVal faultCount As Long, _
+                                              ByVal weekKey As String, _
+                                              ByVal bulletBlock As String) As String
+
+    If faultCount <= 0 Then
+        BuildDeferredFaultWeekComment = vbNullString
+        Exit Function
+    End If
+
+    BuildDeferredFaultWeekComment = _
+        "PT2/3s due w/c " & weekKey & " (" & CStr(faultCount) & ")" & vbLf & vbLf & _
+        bulletBlock
+
+End Function
+
