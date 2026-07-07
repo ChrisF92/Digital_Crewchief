@@ -193,6 +193,73 @@ Public Function CalcHourDueDate(lifeRem As Double, normType As String, weekStart
 End Function
 
 '------------------------------------------------------------------------------
+' Purpose : Estimates flying hours consumed between two dates.
+' Input : fromDate - start date (inclusive).
+' toDate - end date (exclusive of any time after toDate).
+' normType - normalised interval type, such as HH, E1, or E2.
+' weekStartDates - array of displayed week start dates.
+' weekHHRate - weekly flying hour rate array.
+' weekE1Rate - weekly E1 rate array.
+' weekE2Rate - weekly E2 rate array.
+' WeeksShown - number of forecast weeks shown.
+' Output : Estimated flying hours between the dates.
+'------------------------------------------------------------------------------
+Public Function CalcFlyingHoursUntilDate(ByVal fromDate As Date, _
+                                         ByVal toDate As Date, _
+                                         ByVal normType As String, _
+                                         ByRef weekStartDates() As Date, _
+                                         ByRef weekHHRate() As Double, _
+                                         ByRef weekE1Rate() As Double, _
+                                         ByRef weekE2Rate() As Double, _
+                                         ByVal WeeksShown As Long) As Double
+
+    If toDate <= fromDate Then
+        CalcFlyingHoursUntilDate = 0
+        Exit Function
+    End If
+
+    Dim totalHours As Double
+    Dim weekIndex As Long
+    Dim rate As Double
+
+    For weekIndex = 1 To WeeksShown
+
+        Dim weekStart As Date
+        Dim weekEnd As Date
+
+        weekStart = weekStartDates(weekIndex)
+        weekEnd = weekStart + 7
+
+        If weekEnd <= fromDate Then GoTo NextWeek
+        If weekStart >= toDate Then Exit For
+
+        Select Case normType
+            Case "HH": rate = weekHHRate(weekIndex)
+            Case "E1": rate = weekE1Rate(weekIndex)
+            Case "E2": rate = weekE2Rate(weekIndex)
+            Case Else: rate = weekHHRate(weekIndex)
+        End Select
+
+        If rate > 0 Then
+            Dim overlapStart As Date
+            Dim overlapEnd As Date
+
+            overlapStart = Application.WorksheetFunction.Max(fromDate, weekStart)
+            overlapEnd = Application.WorksheetFunction.Min(toDate, weekEnd)
+
+            If overlapEnd > overlapStart Then
+                totalHours = totalHours + rate * (overlapEnd - overlapStart) / 7
+            End If
+        End If
+
+NextWeek:
+    Next weekIndex
+
+    CalcFlyingHoursUntilDate = totalHours
+
+End Function
+
+'------------------------------------------------------------------------------
 ' Purpose : Calculates the next recurrence date for a repeating hour/counter-based task.
 ' Input : fromDate - date to calculate from.
 ' intervalHrs - recurrence interval.

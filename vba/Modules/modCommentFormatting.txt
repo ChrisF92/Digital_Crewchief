@@ -57,14 +57,18 @@ End Function
 Public Function FormatExtensionAmount(ByRef occurrence As TaskOccurrence, _
                                       ByVal amount As Double) As String
 
+    Dim amountText As String
+
     If occurrence.intervalType = "DD" Then
         If amount = Int(amount) Then
-            FormatExtensionAmount = CStr(CLng(amount))
+            amountText = CStr(CLng(amount))
         Else
-            FormatExtensionAmount = Format$(amount, "0.##")
+            amountText = Format$(amount, "0.##")
         End If
+
+        FormatExtensionAmount = amountText & " DD"
     Else
-        FormatExtensionAmount = FormatHoursToHMM(amount)
+        FormatExtensionAmount = FormatHoursToHMM(amount) & " " & occurrence.intervalType
     End If
 
 End Function
@@ -273,7 +277,7 @@ Public Function BuildOccurrenceScheduledBullet(ByRef occurrence As TaskOccurrenc
                    FormatOccurrenceGroupedAlignmentAmount(occurrence)
     End If
 
-    If occurrence.wasAutoPulled Then
+    If occurrence.wasAutoPulled And occurrence.pullPercentUsed > 0 Then
         tailText = tailText & " | Pulled " & FormatOccurrencePullAmount(occurrence) & _
                    " (" & FormatOccurrencePercent(occurrence.pullPercentUsed) & _
                    ") to Maint"

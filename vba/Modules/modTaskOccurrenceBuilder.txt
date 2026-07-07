@@ -334,13 +334,28 @@ Private Sub AddSingleVisibleOccurrence(ByRef result As TaskOccurrenceBuildResult
         occurrenceExistingExtensionAmount = 0
     End If
 
+    Dim occurrenceLifeRemaining As Double
+    occurrenceLifeRemaining = lifeRemaining
+
+    If isHourBased And occurrenceNumber > 0 Then
+        occurrenceLifeRemaining = CalcFlyingHoursUntilDate( _
+            Date, _
+            dueDate, _
+            intervalType, _
+            weekStartDates, _
+            weekHHRates, _
+            weekE1Rates, _
+            weekE2Rates, _
+            settings.displayWeeksShown)
+    End If
+
     result.totalOccurrences = result.totalOccurrences + 1
     EnsureTaskOccurrenceCapacity result.taskOccurrences, result.totalOccurrences
 
     result.taskOccurrences(result.totalOccurrences) = BuildTaskOccurrence( _
         taskRecord.serialNumber, _
         taskRecord.TaskSequence, _
-        lifeRemaining, _
+        occurrenceLifeRemaining, _
         intervalType, _
         intervalValue, _
         movement.finalWeek, _

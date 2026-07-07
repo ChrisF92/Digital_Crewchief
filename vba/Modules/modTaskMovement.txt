@@ -148,9 +148,12 @@ Private Function TryPullTaskToPreviousMaintenance(ByRef movement As TaskMovement
         movement.pullPercentUsed = 1
     End If
 
-    If movement.pullPercentUsed <= settings.MaxPullForwardPercent Then
+    If pullRequired > 0 And movement.pullPercentUsed <= settings.MaxPullForwardPercent Then
         movement.finalWeek = weekStartDates(previousMaintenanceIndex)
         movement.WasPulled = True
+    Else
+        movement.pullPercentUsed = 0
+        movement.WasPulled = False
     End If
 
     TryPullTaskToPreviousMaintenance = movement
