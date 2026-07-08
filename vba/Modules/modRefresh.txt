@@ -61,12 +61,12 @@ Public Sub RefreshAll()
 
         failedTail = tailNumbers(aircraftIndex)
 
-        dashboardRows(aircraftIndex) = modAircraftRefresh.RefreshAircraftAtIndex _
+        dashboardRows(aircraftIndex) = RefreshAircraftAtIndex( _
             aircraftIndex, _
             aircraftRoster, _
             settings, _
             rates, _
-            weekStartDates
+            weekStartDates)
 
     Next aircraftIndex
 
