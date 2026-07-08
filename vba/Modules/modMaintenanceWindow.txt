@@ -128,7 +128,13 @@ Private Function GetInCycleMaintenanceStatus(ByRef settings As PlannerSettings, 
             settings.displayWeeksShown, _
             settings.flyingWeeks)
 
-        status.daysToMaintenance = 0
+        status.daysToMaintenance = CalculateDaysToFirstFlyingWeek( _
+            weekStartDates, _
+            weekCyclePosition, _
+            status.endWeekIndex, _
+            settings.displayWeeksShown, _
+            settings.flyingWeeks)
+
         status.IsCurrentlyInMaintenance = True
 
     Else
@@ -160,6 +166,44 @@ Private Function GetInCycleMaintenanceStatus(ByRef settings As PlannerSettings, 
     End If
 
     GetInCycleMaintenanceStatus = status
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Calculates days until the first flying week after a maintenance block.
+' Input : weekStartDates - visible planner week start dates.
+' weekCyclePosition - weekly cycle position array.
+' maintenanceEndIndex - last week index of the current maintenance block.
+' displayWeeksShown - number of visible forecast weeks.
+' flyingWeeks - number of flying weeks in the cycle.
+' Output : Day count, or "-" when the next flying week is outside the display range.
+'------------------------------------------------------------------------------
+Private Function CalculateDaysToFirstFlyingWeek(ByRef weekStartDates() As Date, _
+                                                ByRef weekCyclePosition() As Long, _
+                                                ByVal maintenanceEndIndex As Long, _
+                                                ByVal displayWeeksShown As Long, _
+                                                ByVal flyingWeeks As Long) As Variant
+
+    Dim firstFlyingWeekIndex As Long
+    firstFlyingWeekIndex = maintenanceEndIndex + 1
+
+    If firstFlyingWeekIndex <= 0 Or firstFlyingWeekIndex > displayWeeksShown Then
+        CalculateDaysToFirstFlyingWeek = "-"
+        Exit Function
+    End If
+
+    If weekCyclePosition(firstFlyingWeekIndex) > flyingWeeks Then
+        CalculateDaysToFirstFlyingWeek = "-"
+        Exit Function
+    End If
+
+    Dim daysToFly As Long
+    daysToFly = CLng(weekStartDates(firstFlyingWeekIndex) - Date)
+
+    If daysToFly < 0 Then daysToFly = 0
+
+    CalculateDaysToFirstFlyingWeek = daysToFly
 
 End Function
 

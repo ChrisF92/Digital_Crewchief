@@ -19,9 +19,6 @@ Private Const DASHBOARD_SECTION_SPACER_ROWS As Long = 1
 
 Public Const DASHBOARD_REIMPORT_BTN_PREFIX As String = "dashReimport_"
 
-Private Const DASHBOARD_HEADER_BLUE As Long = 9851952 ' RGB(47, 84, 150)
-Private Const DASHBOARD_SECTION_TITLE_GREY As Long = 14277081 ' RGB(217, 217, 217)
-
 
 Public Type DashboardAircraftRowData
     tailNumber As String
@@ -376,7 +373,7 @@ Private Function WriteDashboardSectionGroup(ByVal dashboardWs As Worksheet, _
   headerRow = startRow + 1
   firstDataRow = headerRow + 1
 
-  WriteDashboardSectionTitle dashboardWs, titleRow, sectionTitle, sectionCount
+  WriteDashboardSectionTitle dashboardWs, titleRow, sectionId, sectionTitle, sectionCount
   WriteDashboardSectionHeaders dashboardWs, headerRow, sectionId
 
   Dim sectionIndex As Long
@@ -494,6 +491,7 @@ End Function
 '------------------------------------------------------------------------------
 Private Sub WriteDashboardSectionTitle(ByVal dashboardWs As Worksheet, _
                                        ByVal titleRow As Long, _
+                                       ByVal sectionId As String, _
                                        ByVal sectionTitle As String, _
                                        ByVal aircraftCount As Long)
 
@@ -514,7 +512,7 @@ Private Sub WriteDashboardSectionTitle(ByVal dashboardWs As Worksheet, _
       .Font.Size = 11
       .Font.Bold = True
       .Font.Color = RGB(0, 0, 0)
-      .Interior.Color = DASHBOARD_SECTION_TITLE_GREY
+      .Interior.Color = GetDashboardSectionTitleColor(sectionId)
       .HorizontalAlignment = xlLeft
       .VerticalAlignment = xlCenter
       .WrapText = False
@@ -525,6 +523,30 @@ Private Sub WriteDashboardSectionTitle(ByVal dashboardWs As Worksheet, _
   dashboardWs.Rows(titleRow).RowHeight = 22
 
 End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Returns the background colour for one dashboard section title row.
+'------------------------------------------------------------------------------
+Private Function GetDashboardSectionTitleColor(ByVal sectionId As String) As Long
+
+  Select Case sectionId
+
+      Case DASHBOARD_SECTION_FLYING
+          GetDashboardSectionTitleColor = RGB(198, 224, 180)
+
+      Case DASHBOARD_SECTION_MAINTENANCE
+          GetDashboardSectionTitleColor = RGB(180, 198, 231)
+
+      Case DASHBOARD_SECTION_DOWN
+          GetDashboardSectionTitleColor = RGB(244, 204, 204)
+
+      Case Else
+          GetDashboardSectionTitleColor = RGB(217, 217, 217)
+
+  End Select
+
+End Function
 
 
 '------------------------------------------------------------------------------
