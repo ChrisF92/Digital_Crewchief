@@ -52,6 +52,9 @@ End Function
 ' Purpose : Clears existing dashboard summary data, formatting, and hyperlinks.
 ' Input : dashboardWs - Dashboard worksheet.
 ' maxSlots - maximum aircraft slots configured for the planner.
+' Notes : Section title rows merge A:L. Those merges must be cleared on refresh,
+'         otherwise a later aircraft data row can land on a leftover merge and
+'         show a stretched/centred tail number.
 '------------------------------------------------------------------------------
 Public Sub ClearDashboardSummary(ByVal dashboardWs As Worksheet, _
                                  ByVal maxSlots As Long)
@@ -60,11 +63,17 @@ Public Sub ClearDashboardSummary(ByVal dashboardWs As Worksheet, _
     ClearDashboardImportBanner dashboardWs
 
     Dim lastDashboardRow As Long
-    lastDashboardRow = DASHBOARD_FIRST_LAYOUT_ROW + (maxSlots * 4)
+    ' Title + header + data + spacer per section, across three sections.
+    lastDashboardRow = DASHBOARD_FIRST_LAYOUT_ROW + (maxSlots * 4) + 12
 
-    With dashboardWs.Range( _
+    Dim layoutRange As Range
+    Set layoutRange = dashboardWs.Range( _
         dashboardWs.Cells(DASHBOARD_FIRST_LAYOUT_ROW, DASHBOARD_FIRST_COL), _
         dashboardWs.Cells(lastDashboardRow, DASHBOARD_LAST_COL))
+
+    UnMergeDashboardRows dashboardWs, DASHBOARD_FIRST_LAYOUT_ROW, lastDashboardRow
+
+    With layoutRange
 
         .ClearContents
         .Interior.ColorIndex = xlNone
@@ -73,13 +82,12 @@ Public Sub ClearDashboardSummary(ByVal dashboardWs As Worksheet, _
         With .Font
             .Color = RGB(0, 0, 0)
             .Underline = xlUnderlineStyleNone
+            .Bold = False
         End With
 
     End With
 
-    ClearCommentsInRange dashboardWs.Range( _
-        dashboardWs.Cells(DASHBOARD_FIRST_LAYOUT_ROW, DASHBOARD_FIRST_COL), _
-        dashboardWs.Cells(lastDashboardRow, DASHBOARD_LAST_COL))
+    ClearCommentsInRange layoutRange
 
     Dim dashboardLink As Hyperlink
 
@@ -96,6 +104,8 @@ End Sub
 Private Sub WriteDashboardSectionHeaders(ByVal dashboardWs As Worksheet, _
                                          ByVal headerRow As Long, _
                                          ByVal sectionId As String)
+
+    UnMergeDashboardRows dashboardWs, headerRow, headerRow
 
     Dim dashboardHeaders As Variant
     dashboardHeaders = GetDashboardSectionHeaders(sectionId)
@@ -642,6 +652,8 @@ Public Sub WriteAircraftDashboardRowAt(ByVal dashboardWs As Worksheet, _
 
     Set chartWs = ThisWorkbook.Worksheets(rowData.chartSheetName)
     Set importWs = ThisWorkbook.Worksheets(rowData.importSheetName)
+
+    UnMergeDashboardRows dashboardWs, dashboardRow, dashboardRow
 
     dashboardWs.Cells(dashboardRow, 1).Value = rowData.tailNumber
     dashboardWs.Cells(dashboardRow, 2).Value = rowData.rotationText
@@ -1287,6 +1299,34 @@ Private Sub ClearDashboardImportBanner(ByVal dashboardWs As Worksheet)
         .Font.Color = RGB(0, 0, 0)
         .Font.Bold = False
     End With
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Unmerges A:L on each dashboard row in the inclusive range.
+' Notes : Section titles and the import banner use full-width merges. Leaving
+'         those behind after ClearContents causes later data rows to inherit
+'         the merge and display a stretched tail number.
+'------------------------------------------------------------------------------
+Private Sub UnMergeDashboardRows(ByVal dashboardWs As Worksheet, _
+                                 ByVal firstRow As Long, _
+                                 ByVal lastRow As Long)
+
+    Dim rowIndex As Long
+    Dim rowRange As Range
+
+    For rowIndex = firstRow To lastRow
+
+        Set rowRange = dashboardWs.Range( _
+            dashboardWs.Cells(rowIndex, DASHBOARD_FIRST_COL), _
+            dashboardWs.Cells(rowIndex, DASHBOARD_LAST_COL))
+
+        On Error Resume Next
+        rowRange.UnMerge
+        On Error GoTo 0
+
+    Next rowIndex
 
 End Sub
 
