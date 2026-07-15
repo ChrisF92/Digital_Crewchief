@@ -184,10 +184,12 @@ End Function
 
 '------------------------------------------------------------------------------
 ' Purpose : Removes an aircraft and its related planner sheets after confirmation.
-' Input : Optional selectedTail â€” when supplied, removes that aircraft without the numbered picker.
-' Output : Deletes aircraft import/chart sheets, clears Rotation/Dashboard rows, then refreshes.
+' Input : Optional selectedTail — when supplied, removes that aircraft without the numbered picker.
+' Output : True when the aircraft was removed; False when cancelled or not found.
 '------------------------------------------------------------------------------
-Public Sub RemoveAircraft(Optional ByVal selectedTail As String = "")
+Public Function RemoveAircraft(Optional ByVal selectedTail As String = "") As Boolean
+
+    RemoveAircraft = False
 
     Dim rotWs As Worksheet
     Set rotWs = ThisWorkbook.Worksheets("Rotation")
@@ -241,7 +243,7 @@ Public Sub RemoveAircraft(Optional ByVal selectedTail As String = "")
 
     If aircraftCount = 0 Then
         MsgBox "No aircraft found in Rotation.", vbInformation, "Remove Aircraft"
-        Exit Sub
+        Exit Function
     End If
 
     Dim selT As String
@@ -265,7 +267,7 @@ Public Sub RemoveAircraft(Optional ByVal selectedTail As String = "")
             MsgBox "Aircraft " & selectedTail & " was not found on the Rotation sheet.", _
                    vbExclamation, _
                    "Remove Aircraft"
-            Exit Sub
+            Exit Function
         End If
 
     Else
@@ -274,11 +276,11 @@ Public Sub RemoveAircraft(Optional ByVal selectedTail As String = "")
         Ch = InputBox("Select aircraft to REMOVE:" & Chr(10) & Chr(10) & acList & Chr(10) & _
                       "Enter number:", "Remove Aircraft")
 
-        If Len(Trim(Ch)) = 0 Then Exit Sub
+        If Len(Trim(Ch)) = 0 Then Exit Function
 
         If Not IsNumeric(Ch) Then
             MsgBox "Please enter a valid number.", vbExclamation, "Remove Aircraft"
-            Exit Sub
+            Exit Function
         End If
 
         Dim idx As Long
@@ -286,7 +288,7 @@ Public Sub RemoveAircraft(Optional ByVal selectedTail As String = "")
 
         If idx < 1 Or idx > aircraftCount Then
             MsgBox "Number out of range.", vbExclamation, "Remove Aircraft"
-            Exit Sub
+            Exit Function
         End If
 
         selT = tailsArr(idx)
@@ -296,7 +298,7 @@ Public Sub RemoveAircraft(Optional ByVal selectedTail As String = "")
 
     If MsgBox("PERMANENTLY DELETE " & selT & " and all its planner sheets?", _
               vbYesNo + vbExclamation, "Confirm Remove Aircraft") <> vbYes Then
-        Exit Sub
+        Exit Function
     End If
 
     Dim cf As String
@@ -304,7 +306,7 @@ Public Sub RemoveAircraft(Optional ByVal selectedTail As String = "")
 
     If UCase(Trim(cf)) <> UCase(selT) Then
         MsgBox "Cancelled.", vbInformation, "Remove Aircraft"
-        Exit Sub
+        Exit Function
     End If
 
     BeginFastMode suppressAlerts:=True
@@ -326,24 +328,6 @@ Public Sub RemoveAircraft(Optional ByVal selectedTail As String = "")
     ClearRotationRowForRemovedAircraft selS
 
     CompactRotationSlots maxSlots
-    
-    Dim dashWs As Worksheet
-    Set dashWs = ThisWorkbook.Sheets("Dashboard")
-    
-    Dim dashRow As Long
-    dashRow = GetRotationRowForSlot(selS)
-    
-    With dashWs.Rows(dashRow)
-        .ClearContents
-        Dim c As Long
-        For c = 1 To dashWs.Columns.Count
-            On Error Resume Next
-            If Not .Cells(1, c).Comment Is Nothing Then
-                .Cells(1, c).Comment.Delete
-            End If
-            On Error GoTo 0
-        Next c
-    End With
 
     EndFastMode
 
@@ -351,7 +335,9 @@ Public Sub RemoveAircraft(Optional ByVal selectedTail As String = "")
 
     RefreshAll
 
-End Sub
+    RemoveAircraft = True
+
+End Function
 
 
 '------------------------------------------------------------------------------

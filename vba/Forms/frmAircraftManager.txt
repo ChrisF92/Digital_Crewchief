@@ -155,13 +155,12 @@ Private Sub cmdRemove_Click()
         Exit Sub
     End If
 
-    RemoveAircraft tailNumber
+    If Not RemoveAircraft(tailNumber) Then Exit Sub
 
     LoadAircraftList
 
     If cmbAircraft.ListCount > 0 Then
         cmbAircraft.listIndex = 0
-        LoadSelectedAircraftDetails
     Else
         ClearFormFields
         UpdateFormState
@@ -281,9 +280,22 @@ Private Sub LoadSelectedAircraftDetails()
 
     ws.Calculate
 
-    cmbPlanningMode.Value = CStr(ws.Cells(rowNumber, COL_PLANNING_MODE).Value)
+    Dim planningModeText As String
+    If IsError(ws.Cells(rowNumber, COL_PLANNING_MODE).Value) Then
+        planningModeText = vbNullString
+    Else
+        planningModeText = Trim$(CStr(ws.Cells(rowNumber, COL_PLANNING_MODE).Value & ""))
+    End If
 
-    txtCurrentCycle.Value = CStr(ws.Cells(rowNumber, COL_CALCULATED_CYCLE_WEEK).Value)
+    If Not SetComboToValue(cmbPlanningMode, planningModeText) Then
+        cmbPlanningMode.ListIndex = -1
+    End If
+
+    If IsError(ws.Cells(rowNumber, COL_CALCULATED_CYCLE_WEEK).Value) Then
+        txtCurrentCycle.Value = vbNullString
+    Else
+        txtCurrentCycle.Value = Trim$(CStr(ws.Cells(rowNumber, COL_CALCULATED_CYCLE_WEEK).Value & ""))
+    End If
 
     If IsDate(ws.Cells(rowNumber, COL_CYCLE_REFERENCE_DATE).Value) Then
         txtEffectiveFrom.Value = Format$(ws.Cells(rowNumber, COL_CYCLE_REFERENCE_DATE).Value, "dd/mm/yyyy")
@@ -291,12 +303,8 @@ Private Sub LoadSelectedAircraftDetails()
         txtEffectiveFrom.Value = Format$(GetForecastStartDate(), "dd/mm/yyyy")
     End If
 
-    If IsNumeric(ws.Cells(rowNumber, COL_CYCLE_WEEK_AT_REFERENCE).Value) Then
-        cmbNewCycleWeek.Value = CStr(ws.Cells(rowNumber, COL_CYCLE_WEEK_AT_REFERENCE).Value)
-    ElseIf IsNumeric(ws.Cells(rowNumber, COL_CALCULATED_CYCLE_WEEK).Value) Then
-        cmbNewCycleWeek.Value = CStr(ws.Cells(rowNumber, COL_CALCULATED_CYCLE_WEEK).Value)
-    Else
-        cmbNewCycleWeek.Value = vbNullString
+    If Not AssignCycleWeekCombo(cmbNewCycleWeek, ws.Cells(rowNumber, COL_CYCLE_WEEK_AT_REFERENCE).Value) Then
+        AssignCycleWeekCombo cmbNewCycleWeek, ws.Cells(rowNumber, COL_CALCULATED_CYCLE_WEEK).Value
     End If
 
     If IsDate(ws.Cells(rowNumber, COL_DOWN_START_DATE).Value) Then
@@ -311,13 +319,13 @@ Private Sub LoadSelectedAircraftDetails()
         txtExpectedReturnDate.Value = vbNullString
     End If
 
-    If IsNumeric(ws.Cells(rowNumber, COL_CYCLE_WEEK_ON_RETURN).Value) Then
-        cmbCycleWeekOnReturn.Value = CStr(ws.Cells(rowNumber, COL_CYCLE_WEEK_ON_RETURN).Value)
-    Else
-        cmbCycleWeekOnReturn.Value = vbNullString
-    End If
+    AssignCycleWeekCombo cmbCycleWeekOnReturn, ws.Cells(rowNumber, COL_CYCLE_WEEK_ON_RETURN).Value
 
-    txtRemarks.Value = CStr(ws.Cells(rowNumber, COL_REMARKS).Value)
+    If IsError(ws.Cells(rowNumber, COL_REMARKS).Value) Then
+        txtRemarks.Value = vbNullString
+    Else
+        txtRemarks.Value = CStr(ws.Cells(rowNumber, COL_REMARKS).Value & "")
+    End If
 
     UpdateFormState
 
@@ -342,14 +350,14 @@ Private Function ApplyInCycleUpdate(ByVal rowNumber As Long, _
         Exit Function
     End If
 
-    If Len(Trim$(cmbNewCycleWeek.Value)) = 0 Then
+    If Len(GetComboText(cmbNewCycleWeek)) = 0 Then
         MsgBox "Please select Cycle Week at Reference Date.", vbExclamation, "Aircraft Manager"
         cmbNewCycleWeek.SetFocus
         Exit Function
     End If
 
     Dim cycleWeekAtReference As Long
-    cycleWeekAtReference = CLng(cmbNewCycleWeek.Value)
+    cycleWeekAtReference = CLng(GetComboText(cmbNewCycleWeek))
 
     If Not IsValidCycleWeek(cycleWeekAtReference) Then
         MsgBox "Cycle week must be between 1 and " & GetCycleLength() & ".", _
@@ -409,14 +417,14 @@ Private Function ApplyDownMaintenanceUpdate(ByVal rowNumber As Long, _
         Exit Function
     End If
 
-    If Len(Trim$(cmbCycleWeekOnReturn.Value)) = 0 Then
+    If Len(GetComboText(cmbCycleWeekOnReturn)) = 0 Then
         MsgBox "Please select Cycle Week on Return.", vbExclamation, "Aircraft Manager"
         cmbCycleWeekOnReturn.SetFocus
         Exit Function
     End If
 
     Dim cycleWeekOnReturn As Long
-    cycleWeekOnReturn = CLng(cmbCycleWeekOnReturn.Value)
+    cycleWeekOnReturn = CLng(GetComboText(cmbCycleWeekOnReturn))
 
     If Not IsValidCycleWeek(cycleWeekOnReturn) Then
         MsgBox "Cycle Week on Return must be between 1 and " & GetCycleLength() & ".", _
@@ -456,7 +464,7 @@ Private Sub UpdateAircraftManagerVisibility()
 
     Dim isDownMaintenance As Boolean
     isDownMaintenance = hasSelection And _
-        (StrComp(Trim$(cmbPlanningMode.Value), PLANNING_MODE_DOWN_MAINTENANCE, vbTextCompare) = 0)
+        (StrComp(GetComboText(cmbPlanningMode), PLANNING_MODE_DOWN_MAINTENANCE, vbTextCompare) = 0)
 
     On Error Resume Next
 
@@ -488,13 +496,14 @@ End Sub
 
 Private Sub ClearFormFields()
 
-    cmbPlanningMode.Value = vbNullString
+    ' List-style combos raise error 380 if Value is set to a blank/non-list item.
+    cmbPlanningMode.ListIndex = -1
     txtCurrentCycle.Value = vbNullString
     txtEffectiveFrom.Value = Format$(GetForecastStartDate(), "dd/mm/yyyy")
-    cmbNewCycleWeek.Value = vbNullString
+    cmbNewCycleWeek.ListIndex = -1
     txtDownStartDate.Value = vbNullString
     txtExpectedReturnDate.Value = vbNullString
-    cmbCycleWeekOnReturn.Value = vbNullString
+    cmbCycleWeekOnReturn.ListIndex = -1
     txtRemarks.Value = vbNullString
 
 End Sub
@@ -572,19 +581,90 @@ End Function
 
 Private Function SetComboToValue(ByVal comboBox As Object, ByVal targetValue As String) As Boolean
 
+    If Len(Trim$(targetValue)) = 0 Then
+        comboBox.ListIndex = -1
+        SetComboToValue = True
+        Exit Function
+    End If
+
     Dim listIndex As Long
 
     For listIndex = 0 To comboBox.ListCount - 1
 
         If StrComp(CStr(comboBox.List(listIndex)), targetValue, vbTextCompare) = 0 Then
-            comboBox.listIndex = listIndex
+            comboBox.ListIndex = listIndex
             SetComboToValue = True
             Exit Function
         End If
 
     Next listIndex
 
+    comboBox.ListIndex = -1
     SetComboToValue = False
+
+End Function
+
+'------------------------------------------------------------------------------
+' Purpose : Safely selects a cycle-week list item from a Rotation cell value.
+' Notes : Avoids error 380 from assigning ComboBox.Value when the text is blank,
+'         Empty (IsNumeric(Empty) is True in VBA), or not in the list.
+'------------------------------------------------------------------------------
+Private Function AssignCycleWeekCombo(ByVal comboBox As Object, ByVal rawValue As Variant) As Boolean
+
+    AssignCycleWeekCombo = False
+
+    Dim cycleWeek As Long
+
+    If Not TryGetCycleWeekNumber(rawValue, cycleWeek) Then
+        comboBox.ListIndex = -1
+        Exit Function
+    End If
+
+    AssignCycleWeekCombo = SetComboToValue(comboBox, CStr(cycleWeek))
+
+End Function
+
+Private Function TryGetCycleWeekNumber(ByVal rawValue As Variant, ByRef cycleWeek As Long) As Boolean
+
+    TryGetCycleWeekNumber = False
+
+    If IsError(rawValue) Then Exit Function
+    If IsEmpty(rawValue) Then Exit Function
+    If IsNull(rawValue) Then Exit Function
+    If Not IsNumeric(rawValue) Then Exit Function
+    If Len(Trim$(CStr(rawValue))) = 0 Then Exit Function
+
+    On Error Resume Next
+    cycleWeek = CLng(rawValue)
+    If Err.Number <> 0 Then
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+    On Error GoTo 0
+
+    If Not IsValidCycleWeek(cycleWeek) Then Exit Function
+
+    TryGetCycleWeekNumber = True
+
+End Function
+
+Private Function GetComboText(ByVal comboBox As Object) As String
+
+    On Error Resume Next
+
+    If comboBox.ListIndex < 0 Then
+        GetComboText = vbNullString
+    Else
+        GetComboText = Trim$(CStr(comboBox.Value & ""))
+    End If
+
+    If Err.Number <> 0 Then
+        Err.Clear
+        GetComboText = vbNullString
+    End If
+
+    On Error GoTo 0
 
 End Function
 
@@ -624,13 +704,13 @@ Private Function ValidateAircraftManagerInput(ByVal planningMode As String) As B
                 Exit Function
             End If
 
-            If Len(Trim$(cmbNewCycleWeek.Value)) = 0 Then
+            If Len(GetComboText(cmbNewCycleWeek)) = 0 Then
                 MsgBox "Please select Cycle Week at Reference Date.", vbExclamation, "Aircraft Manager"
                 cmbNewCycleWeek.SetFocus
                 Exit Function
             End If
 
-            If Not IsValidCycleWeek(CLng(cmbNewCycleWeek.Value)) Then
+            If Not IsValidCycleWeek(CLng(GetComboText(cmbNewCycleWeek))) Then
                 MsgBox "Cycle week must be between 1 and " & GetCycleLength() & ".", _
                        vbExclamation, _
                        "Aircraft Manager"
@@ -663,13 +743,13 @@ Private Function ValidateAircraftManagerInput(ByVal planningMode As String) As B
                 Exit Function
             End If
 
-            If Len(Trim$(cmbCycleWeekOnReturn.Value)) = 0 Then
+            If Len(GetComboText(cmbCycleWeekOnReturn)) = 0 Then
                 MsgBox "Please select Cycle Week on Return.", vbExclamation, "Aircraft Manager"
                 cmbCycleWeekOnReturn.SetFocus
                 Exit Function
             End If
 
-            If Not IsValidCycleWeek(CLng(cmbCycleWeekOnReturn.Value)) Then
+            If Not IsValidCycleWeek(CLng(GetComboText(cmbCycleWeekOnReturn))) Then
                 MsgBox "Cycle Week on Return must be between 1 and " & GetCycleLength() & ".", _
                        vbExclamation, _
                        "Aircraft Manager"
