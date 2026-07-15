@@ -179,6 +179,128 @@ End Function
 
 
 '------------------------------------------------------------------------------
+' Purpose : Builds grouped task occurrences for one aircraft without rewriting its chart.
+' Input : tailNumber - aircraft tail number.
+' taskOccurrences - returned grouped occurrence array.
+' totalOccurrences - returned count of populated occurrences.
+' Output : True if occurrences were built successfully; otherwise False.
+' Notes : Used by Word export so table columns can use structured occurrence fields
+' instead of scraping lossy chart comments.
+'------------------------------------------------------------------------------
+Public Function TryBuildGroupedTaskOccurrencesForTail(ByVal tailNumber As String, _
+                                                      ByRef taskOccurrences() As TaskOccurrence, _
+                                                      ByRef totalOccurrences As Long) As Boolean
+
+    On Error GoTo BuildFailed
+
+    Dim settings As PlannerSettings
+    Dim rates As plannerRates
+    Dim roster As aircraftRoster
+    Dim weekStartDates() As Date
+
+    settings = LoadPlannerSettings()
+    rates = LoadPlannerRates(settings.flyingWeeks)
+    roster = LoadAircraftRoster(settings)
+    weekStartDates = BuildDisplayWeekStartDates(settings.displayStart, settings.displayWeeksShown)
+
+    Dim aircraftIndex As Long
+    aircraftIndex = FindRosterAircraftIndex(roster, tailNumber)
+
+    If aircraftIndex = 0 Then
+        TryBuildGroupedTaskOccurrencesForTail = False
+        Exit Function
+    End If
+
+    Dim importWs As Worksheet
+    Set importWs = GetOrCreateAircraftImportSheet(tailNumber)
+
+    Dim isDownMaintenance As Boolean
+    Dim downStartDate As Date
+    Dim rtsDate As Date
+    Dim hasDownWindow As Boolean
+    Dim rtsFlyStart As Date
+
+    isDownMaintenance = (roster.planningModes(aircraftIndex) = PLANNING_MODE_DOWN)
+
+    LoadAircraftDownWindow _
+        roster, _
+        aircraftIndex, _
+        isDownMaintenance, _
+        downStartDate, _
+        rtsDate, _
+        hasDownWindow, _
+        rtsFlyStart
+
+    Dim rotationSchedule As AircraftRotationSchedule
+
+    rotationSchedule = BuildAircraftRotationSchedule( _
+        settings, _
+        rates, _
+        weekStartDates, _
+        roster.cycleStarts(aircraftIndex), _
+        isDownMaintenance, _
+        rtsFlyStart)
+
+    Dim taskBuildResult As TaskOccurrenceBuildResult
+
+    taskBuildResult = BuildTaskOccurrencesForAircraft( _
+        importWs, _
+        settings, _
+        settings.forecastStart, _
+        settings.displayStart, _
+        settings.displayEnd, _
+        weekStartDates, _
+        rotationSchedule.weekHHRates, _
+        rotationSchedule.weekE1Rates, _
+        rotationSchedule.weekE2Rates, _
+        rotationSchedule.weekCyclePositions)
+
+    taskOccurrences = taskBuildResult.taskOccurrences
+    totalOccurrences = taskBuildResult.totalOccurrences
+
+    ApplyTaskGrouping _
+        taskOccurrences, _
+        totalOccurrences, _
+        settings.GroupingTolerancePercent, _
+        settings, _
+        weekStartDates, _
+        rotationSchedule.weekHHRates, _
+        rotationSchedule.weekE1Rates, _
+        rotationSchedule.weekE2Rates
+
+    TryBuildGroupedTaskOccurrencesForTail = True
+    Exit Function
+
+BuildFailed:
+    TryBuildGroupedTaskOccurrencesForTail = False
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Finds an aircraft roster index by tail number.
+'------------------------------------------------------------------------------
+Private Function FindRosterAircraftIndex(ByRef roster As aircraftRoster, _
+                                         ByVal tailNumber As String) As Long
+
+    Dim aircraftIndex As Long
+    Dim cleanTail As String
+
+    cleanTail = UCase$(Trim$(tailNumber))
+
+    For aircraftIndex = 1 To roster.aircraftCount
+        If UCase$(Trim$(roster.tailNumbers(aircraftIndex))) = cleanTail Then
+            FindRosterAircraftIndex = aircraftIndex
+            Exit Function
+        End If
+    Next aircraftIndex
+
+    FindRosterAircraftIndex = 0
+
+End Function
+
+
+'------------------------------------------------------------------------------
 ' Purpose : Loads down-maintenance dates for one aircraft.
 '------------------------------------------------------------------------------
 Private Sub LoadAircraftDownWindow(ByRef roster As aircraftRoster, _
