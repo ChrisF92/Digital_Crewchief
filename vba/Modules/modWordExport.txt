@@ -6,6 +6,11 @@ Option Explicit
 ' Purpose : Exports selected chart period tasks to a Microsoft Word work pack.
 '------------------------------------------------------------------------------
 
+' Chart comments mark auto-pushed tasks with the week the extension must be raised.
+' Current format places the date after the tag; legacy format kept the date inside it.
+Private Const EXT_REQ_BY_TAG As String = "[EXT. REQ. BY]"
+Private Const EXT_REQ_FOR_TAG As String = "[EXT. REQ. FOR "
+
 '------------------------------------------------------------------------------
 ' Purpose : Generates a Microsoft Word work pack for the selected aircraft chart period.
 ' Input : None. Uses ActiveSheet and ActiveCell to determine aircraft and selected period.
@@ -394,15 +399,12 @@ Private Function ExtractExtensionTasksDueInPeriodFromComment(commentText As Stri
         lineText = Trim(CStr(lines(i)))
 
         If Len(lineText) > 0 Then
-            If InStr(1, lineText, "[EXT. REQ. FOR ", vbTextCompare) > 0 Then
-
-                If TryGetExtDueDate(lineText, dueDate) Then
-                    If dueDate >= periodStartDate And dueDate <= periodEndDate Then
-                        If Len(result) > 0 Then result = result & vbCrLf
-                        result = result & lineText
-                    End If
+            ' Match by extension-required week (originalWeek), not the pushed-to week.
+            If TryGetExtDueDate(lineText, dueDate) Then
+                If dueDate >= periodStartDate And dueDate <= periodEndDate Then
+                    If Len(result) > 0 Then result = result & vbCrLf
+                    result = result & lineText
                 End If
-
             End If
         End If
 
@@ -414,27 +416,41 @@ End Function
 
 '------------------------------------------------------------------------------
 ' Purpose : Reads an extension due date from a task comment line.
-' Input : lineText - comment line containing an [EXT DUE DD/MM/YYYY] tag.
+' Input : lineText - comment line containing an extension-required tag.
 ' dueDate - returned due date if parsed successfully.
 ' Output : True if a valid extension due date was found, otherwise False.
+' Notes : Supports current "[EXT. REQ. BY] DD/MM/YYYY" and legacy
+' "[EXT. REQ. FOR DD/MM/YYYY]" formats. The date is the week the extension
+' must be raised (originalWeek), not the week the task was pushed into.
 '------------------------------------------------------------------------------
 Private Function TryGetExtDueDate(lineText As String, ByRef dueDate As Date) As Boolean
-    
+
     Dim p As Long
-    p = InStr(1, lineText, "[EXT. REQ. FOR ", vbTextCompare)
-    
-    If p = 0 Then
-        TryGetExtDueDate = False
-        Exit Function
-    End If
-    
-    Dim dateStart As Long
-    dateStart = p + Len("[EXT. REQ. FOR ")
-    
     Dim dateText As String
-    dateText = Mid(lineText, dateStart, 10)
-    
-    TryGetExtDueDate = TryParseUKDate(dateText, dueDate)
+    Dim afterTag As String
+
+    ' Current format: [EXT. REQ. BY] DD/MM/YYYY | ...
+    p = InStr(1, lineText, EXT_REQ_BY_TAG, vbTextCompare)
+    If p > 0 Then
+        afterTag = Trim$(Mid$(lineText, p + Len(EXT_REQ_BY_TAG)))
+        dateText = Left$(afterTag, 10)
+        If TryParseUKDate(dateText, dueDate) Then
+            TryGetExtDueDate = True
+            Exit Function
+        End If
+    End If
+
+    ' Legacy format: [EXT. REQ. FOR DD/MM/YYYY] | ...
+    p = InStr(1, lineText, EXT_REQ_FOR_TAG, vbTextCompare)
+    If p > 0 Then
+        dateText = Mid$(lineText, p + Len(EXT_REQ_FOR_TAG), 10)
+        If TryParseUKDate(dateText, dueDate) Then
+            TryGetExtDueDate = True
+            Exit Function
+        End If
+    End If
+
+    TryGetExtDueDate = False
 
 End Function
 
