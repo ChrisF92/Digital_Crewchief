@@ -6,6 +6,18 @@ Option Explicit
 ' Purpose : Exports selected chart period tasks to a Microsoft Word work pack.
 '------------------------------------------------------------------------------
 
+Private Const EXT_TABLE_COLS As Long = 5
+Private Const TASK_TABLE_COLS As Long = 8
+
+' Late-bound Word constants.
+Private Const WD_COLLAPSE_END As Long = 0
+Private Const WD_ORIENT_LANDSCAPE As Long = 1
+Private Const WD_AUTO_FIT_WINDOW As Long = 2
+Private Const WD_LINE_STYLE_SINGLE As Long = 1
+Private Const WD_COLOR_BLACK As Long = 0
+Private Const WD_ALIGN_PARAGRAPH_CENTER As Long = 1
+
+
 '------------------------------------------------------------------------------
 ' Purpose : Generates a Microsoft Word work pack for the selected aircraft chart period.
 ' Input : None. Uses ActiveSheet and ActiveCell to determine aircraft and selected period.
@@ -57,7 +69,6 @@ Public Sub GenerateWordWorkPack()
 
     ElseIf IsDownOrMaintHeader(chartWs.Cells(3, selCol).Value) Then
 
-        ' Walk left over same down/maint block.
         Do While periodStartCol > firstWeekCol
             If IsDownOrMaintHeader(chartWs.Cells(3, periodStartCol - 1).Value) Then
                 periodStartCol = periodStartCol - 1
@@ -66,7 +77,6 @@ Public Sub GenerateWordWorkPack()
             End If
         Loop
 
-        ' Walk right over same down/maint block.
         Do While periodEndCol < lastWeekCol
             If IsDownOrMaintHeader(chartWs.Cells(3, periodEndCol + 1).Value) Then
                 periodEndCol = periodEndCol + 1
@@ -108,140 +118,33 @@ Public Sub GenerateWordWorkPack()
 
     BeginFastMode
 
-    ' Collect task comments for the selected period.
-    Dim lastRow As Long
-    lastRow = chartWs.Cells(chartWs.Rows.Count, 1).End(xlUp).Row
+    Dim taskOccurrences() As TaskOccurrence
+    Dim totalOccurrences As Long
 
-    Dim reportText As String
-    Dim extensionText As String
-    Dim totalTasks As Long
-    Dim extensionTasks As Long
+    If Not TryBuildGroupedTaskOccurrencesForTail(tail, taskOccurrences, totalOccurrences) Then
+        MsgBox "Could not rebuild task data for " & tail & "." & vbCrLf & vbCrLf & _
+               "Check that the aircraft is on the Rotation sheet and has an import loaded.", _
+               vbExclamation, "Generate Work Pack"
+        GoTo CleanExit
+    End If
 
-    Dim r As Long
-    Dim c As Long
+    Dim extensionIndexes() As Long
+    Dim scheduledIndexes() As Long
+    Dim extensionCount As Long
+    Dim scheduledCount As Long
 
-    reportText = vbNullString
-    extensionText = vbNullString
-    totalTasks = 0
-    extensionTasks = 0
+    CollectWordExportOccurrences _
+        taskOccurrences, _
+        totalOccurrences, _
+        periodStartDate, _
+        periodEndDate, _
+        extensionIndexes, _
+        extensionCount, _
+        scheduledIndexes, _
+        scheduledCount
 
-    For r = CHART_FIRST_TASK_ROW To lastRow
-
-        Dim rowLabel As String
-        rowLabel = Trim$(CStr(chartWs.Cells(r, 3).Value))
-
-        If Len(rowLabel) > 0 Then
-
-            Dim rowTasks As String
-            Dim rowCount As Long
-
-            rowTasks = vbNullString
-            rowCount = 0
-
-            For c = periodStartCol To periodEndCol
-
-                Dim taskCell As Range
-                Set taskCell = chartWs.Cells(r, c)
-
-                If taskCell.MergeCells Then
-                    ' Only process the first cell of a merged area once.
-                    If taskCell.Address = taskCell.MergeArea.Cells(1, 1).Address Then
-                        Set taskCell = taskCell.MergeArea.Cells(1, 1)
-                    Else
-                        GoTo NextTaskCol
-                    End If
-                End If
-
-                If Not taskCell.Comment Is Nothing Then
-
-                    Dim rawComment As String
-                    Dim cleanComment As String
-
-                    rawComment = taskCell.Comment.Text
-                    cleanComment = CleanTaskCommentForWord(rawComment)
-
-                    If Len(cleanComment) > 0 Then
-                        If Len(rowTasks) > 0 Then rowTasks = rowTasks & vbCrLf
-                        rowTasks = rowTasks & cleanComment
-
-                        If IsNumeric(taskCell.Value) Then
-                            rowCount = rowCount + CLng(taskCell.Value)
-                        Else
-                            rowCount = rowCount + 1
-                        End If
-                    End If
-
-                End If
-
-NextTaskCol:
-            Next c
-
-            If Len(rowTasks) > 0 Then
-                If Len(reportText) > 0 Then reportText = reportText & vbCrLf & vbCrLf
-
-                reportText = reportText & rowLabel & _
-                             " (" & rowCount & " task" & IIf(rowCount = 1, "", "s") & ")" & _
-                             vbCrLf & rowTasks
-
-                totalTasks = totalTasks + rowCount
-            End If
-
-        End If
-
-    Next r
-
-    ' Scan all chart comments for extension tasks due during the selected period.
-    Dim extScanRow As Long
-    Dim extScanCol As Long
-
-    For extScanRow = CHART_FIRST_TASK_ROW To lastRow
-
-        Dim extRowLabel As String
-        extRowLabel = Trim$(CStr(chartWs.Cells(extScanRow, 3).Value))
-
-        If Len(extRowLabel) > 0 Then
-
-            For extScanCol = firstWeekCol To lastWeekCol
-
-                Dim extCell As Range
-                Set extCell = chartWs.Cells(extScanRow, extScanCol)
-
-                If extCell.MergeCells Then
-                    ' Only process the first cell of a merged area once.
-                    If extCell.Address = extCell.MergeArea.Cells(1, 1).Address Then
-                        Set extCell = extCell.MergeArea.Cells(1, 1)
-                    Else
-                        GoTo NextExtScanCol
-                    End If
-                End If
-
-                If Not extCell.Comment Is Nothing Then
-
-                    Dim extDueText As String
-
-                    extDueText = ExtractExtensionTasksDueInPeriodFromComment( _
-                                    extCell.Comment.Text, _
-                                    periodStartDate, _
-                                    periodEndDate)
-
-                    If Len(extDueText) > 0 Then
-                        If Len(extensionText) > 0 Then extensionText = extensionText & vbCrLf & vbCrLf
-
-                        extensionText = extensionText & extRowLabel & ":" & vbCrLf & extDueText
-                        extensionTasks = extensionTasks + CountExtensionLines(extDueText)
-                    End If
-
-                End If
-
-NextExtScanCol:
-            Next extScanCol
-
-        End If
-
-    Next extScanRow
-
-    If totalTasks = 0 Then
-        MsgBox "No tasks found for the selected week/down period.", _
+    If extensionCount = 0 And scheduledCount = 0 Then
+        MsgBox "No tasks or extensions found for the selected week/down period.", _
                vbInformation, "Generate Work Pack"
         GoTo CleanExit
     End If
@@ -271,48 +174,80 @@ NextExtScanCol:
     Set wdDoc = wdApp.Documents.Add
     Set wdRange = wdDoc.Range
 
-    Dim extensionSection As String
+    With wdDoc.PageSetup
+        .Orientation = WD_ORIENT_LANDSCAPE
+        .LeftMargin = 36
+        .RightMargin = 36
+        .TopMargin = 54
+        .BottomMargin = 54
+    End With
 
-    If extensionTasks > 0 Then
-        extensionSection = vbCrLf & _
-                           "EXTENSIONS REQUIRED" & vbCrLf & _
-                           String$(60, "-") & vbCrLf & _
-                           extensionTasks & " task(s) require extension:" & vbCrLf & vbCrLf & _
-                           extensionText & vbCrLf
-    Else
-        extensionSection = vbCrLf & _
-                           "EXTENSIONS REQUIRED" & vbCrLf & _
-                           String$(60, "-") & vbCrLf & _
-                           "No extensions required for this selected period." & vbCrLf
-    End If
-
-    wdRange.Text = tail & " Maintenance Work Pack" & vbCrLf & _
-                   periodTitle & vbCrLf & _
-                   "Generated: " & Format$(Now, "DD/MM/YYYY HH:NN") & vbCrLf & _
-                   "Total tasks: " & totalTasks & vbCrLf & _
-                   "Extensions required: " & extensionTasks & vbCrLf & _
-                   String$(60, "=") & vbCrLf & _
-                   extensionSection & vbCrLf & _
-                   "TASKS DUE IN SELECTED PERIOD" & vbCrLf & _
-                   String$(60, "-") & vbCrLf & _
-                   reportText
-
-    ' Basic formatting.
-    wdDoc.Range.Font.Name = "Arial"
-    wdDoc.Range.Font.Size = 10
+    wdRange.Text = tail & " Maintenance Work Pack" & vbCr & _
+                   periodTitle & vbCr & _
+                   "Generated: " & Format$(Now, "DD/MM/YYYY HH:NN") & vbCr & _
+                   "Scheduled tasks: " & scheduledCount & vbCr & _
+                   "Extensions required: " & extensionCount & vbCr
 
     With wdDoc.Paragraphs(1).Range.Font
+        .Name = "Arial"
         .Bold = True
         .Size = 18
     End With
 
     With wdDoc.Paragraphs(2).Range.Font
+        .Name = "Arial"
         .Bold = True
         .Size = 12
     End With
 
+    Dim paraIndex As Long
+    For paraIndex = 3 To 5
+        With wdDoc.Paragraphs(paraIndex).Range.Font
+            .Name = "Arial"
+            .Size = 10
+        End With
+    Next paraIndex
+
+    Set wdRange = wdDoc.Content
+    wdRange.Collapse WD_COLLAPSE_END
+
+    AppendWordSectionHeading wdDoc, "EXTENSIONS REQUIRED"
+    Set wdRange = wdDoc.Content
+    wdRange.Collapse WD_COLLAPSE_END
+
+    If extensionCount = 0 Then
+        wdRange.InsertAfter "No extensions required for this selected period." & vbCr
+    Else
+        WriteExtensionsWordTable _
+            wdDoc, _
+            wdRange, _
+            taskOccurrences, _
+            extensionIndexes, _
+            extensionCount
+    End If
+
+    Set wdRange = wdDoc.Content
+    wdRange.Collapse WD_COLLAPSE_END
+    wdRange.InsertParagraphAfter
+    wdRange.Collapse WD_COLLAPSE_END
+
+    AppendWordSectionHeading wdDoc, "SCHEDULED TASKS"
+    Set wdRange = wdDoc.Content
+    wdRange.Collapse WD_COLLAPSE_END
+
+    If scheduledCount = 0 Then
+        wdRange.InsertAfter "No scheduled tasks for this selected period." & vbCr
+    Else
+        WriteScheduledTasksWordTable _
+            wdDoc, _
+            wdRange, _
+            taskOccurrences, _
+            scheduledIndexes, _
+            scheduledCount
+    End If
+
     MsgBox "Word work pack created for " & tail & "." & Chr$(10) & _
-           totalTasks & " task(s) included.", _
+           scheduledCount & " scheduled task(s), " & extensionCount & " extension(s).", _
            vbInformation, "Generate Work Pack"
 
 CleanExit:
@@ -335,172 +270,386 @@ End Sub
 
 
 '------------------------------------------------------------------------------
-' Purpose : Counts extension task lines in prepared extension text.
-' Input : extensionText - multi-line extension task text.
-' Output : Number of lines containing extension tags.
+' Purpose : Collects extension and scheduled occurrence indexes for a selected period.
+' Notes : Extensions are keyed by originalWeek (raise-by week). Scheduled tasks are
+' keyed by scheduledWeek (including push destination weeks).
 '------------------------------------------------------------------------------
-Private Function CountExtensionLines(extensionText As String) As Long
+Private Sub CollectWordExportOccurrences(ByRef taskOccurrences() As TaskOccurrence, _
+                                         ByVal totalOccurrences As Long, _
+                                         ByVal periodStartDate As Date, _
+                                         ByVal periodEndDate As Date, _
+                                         ByRef extensionIndexes() As Long, _
+                                         ByRef extensionCount As Long, _
+                                         ByRef scheduledIndexes() As Long, _
+                                         ByRef scheduledCount As Long)
 
-    Dim lines() As String
-    lines = Split(extensionText, vbCrLf)
+    Dim occurrenceIndex As Long
+    Dim seenScheduled As Object
 
-    Dim i As Long
-    Dim cnt As Long
+    Set seenScheduled = CreateObject("Scripting.Dictionary")
 
-    For i = LBound(lines) To UBound(lines)
-        If InStr(1, lines(i), "[EXT", vbTextCompare) > 0 Then
-            cnt = cnt + 1
-        End If
-    Next i
+    extensionCount = 0
+    scheduledCount = 0
 
-    CountExtensionLines = cnt
-
-End Function
-
-'------------------------------------------------------------------------------
-' Purpose : Extracts extension tasks whose extension due date falls within a selected period.
-' Input : commentText - raw Excel comment text.
-' periodStartDate - selected period start date.
-' periodEndDate - selected period end date.
-' Output : Multi-line string of matching extension task lines.
-'------------------------------------------------------------------------------
-Private Function ExtractExtensionTasksDueInPeriodFromComment(commentText As String, _
-                                                     periodStartDate As Date, _
-                                                     periodEndDate As Date) As String
-
-    Dim s As String
-    s = commentText
-
-    ' Remove leading "x task(s):" line if present.
-    Dim firstBreak As Long
-    firstBreak = InStr(s, Chr(10))
-
-    If firstBreak > 0 Then
-        If InStr(1, Left(s, firstBreak), "task(s):", vbTextCompare) > 0 Then
-            s = Mid(s, firstBreak + 1)
-        End If
+    If totalOccurrences > 0 Then
+        ReDim extensionIndexes(1 To totalOccurrences)
+        ReDim scheduledIndexes(1 To totalOccurrences)
     End If
 
-    Dim lines() As String
-    lines = Split(s, Chr(10))
+    For occurrenceIndex = 1 To totalOccurrences
 
-    Dim result As String
-    Dim i As Long
-    Dim lineText As String
-    Dim dueDate As Date
+        Dim occurrence As TaskOccurrence
+        occurrence = taskOccurrences(occurrenceIndex)
 
-    For i = LBound(lines) To UBound(lines)
+        If occurrence.isDeferredFault Then GoTo NextOccurrence
 
-        lineText = Trim(CStr(lines(i)))
+        If IsExtensionRequiredInPeriod(occurrence, periodStartDate, periodEndDate) Then
+            extensionCount = extensionCount + 1
+            extensionIndexes(extensionCount) = occurrenceIndex
+        End If
 
-        If Len(lineText) > 0 Then
-            If InStr(1, lineText, "[EXT. REQ. FOR ", vbTextCompare) > 0 Then
+        If IsScheduledInPeriod(occurrence, periodStartDate, periodEndDate) Then
 
-                If TryGetExtDueDate(lineText, dueDate) Then
-                    If dueDate >= periodStartDate And dueDate <= periodEndDate Then
-                        If Len(result) > 0 Then result = result & vbCrLf
-                        result = result & lineText
-                    End If
-                End If
+            Dim dedupeKey As String
+            dedupeKey = GetTaskOccurrenceKey(occurrence)
 
+            If Not seenScheduled.Exists(dedupeKey) Then
+                seenScheduled.Add dedupeKey, True
+                scheduledCount = scheduledCount + 1
+                scheduledIndexes(scheduledCount) = occurrenceIndex
             End If
+
         End If
 
+NextOccurrence:
+    Next occurrenceIndex
+
+    If extensionCount > 1 Then
+        SortOccurrenceIndexesByDueDate taskOccurrences, extensionIndexes, extensionCount
+    End If
+
+    If scheduledCount > 1 Then
+        SortOccurrenceIndexesByDueDate taskOccurrences, scheduledIndexes, scheduledCount
+    End If
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : True when an auto-pushed task requires an extension in the selected period.
+'------------------------------------------------------------------------------
+Private Function IsExtensionRequiredInPeriod(ByRef occurrence As TaskOccurrence, _
+                                             ByVal periodStartDate As Date, _
+                                             ByVal periodEndDate As Date) As Boolean
+
+    If Not occurrence.wasAutoPushed Then
+        IsExtensionRequiredInPeriod = False
+        Exit Function
+    End If
+
+    If CLng(occurrence.originalWeek) = CLng(occurrence.scheduledWeek) Then
+        IsExtensionRequiredInPeriod = False
+        Exit Function
+    End If
+
+    IsExtensionRequiredInPeriod = IsWeekStartInPeriod( _
+        occurrence.originalWeek, _
+        periodStartDate, _
+        periodEndDate)
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : True when a task is scheduled into the selected period.
+'------------------------------------------------------------------------------
+Private Function IsScheduledInPeriod(ByRef occurrence As TaskOccurrence, _
+                                     ByVal periodStartDate As Date, _
+                                     ByVal periodEndDate As Date) As Boolean
+
+    IsScheduledInPeriod = IsWeekStartInPeriod( _
+        occurrence.scheduledWeek, _
+        periodStartDate, _
+        periodEndDate)
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : True when a Monday week-start falls inside the selected period dates.
+'------------------------------------------------------------------------------
+Private Function IsWeekStartInPeriod(ByVal weekStart As Date, _
+                                     ByVal periodStartDate As Date, _
+                                     ByVal periodEndDate As Date) As Boolean
+
+    IsWeekStartInPeriod = (weekStart >= periodStartDate And weekStart <= periodEndDate)
+
+End Function
+
+
+'------------------------------------------------------------------------------
+' Purpose : Sorts occurrence indexes by first due date, then task code.
+'------------------------------------------------------------------------------
+Private Sub SortOccurrenceIndexesByDueDate(ByRef taskOccurrences() As TaskOccurrence, _
+                                           ByRef indexes() As Long, _
+                                           ByVal itemCount As Long)
+
+    Dim i As Long
+    Dim j As Long
+    Dim tempIndex As Long
+
+    For i = 1 To itemCount - 1
+        For j = i + 1 To itemCount
+            If CompareOccurrencesForWordExport( _
+                taskOccurrences(indexes(j)), _
+                taskOccurrences(indexes(i))) < 0 Then
+
+                tempIndex = indexes(i)
+                indexes(i) = indexes(j)
+                indexes(j) = tempIndex
+            End If
+        Next j
     Next i
 
-    ExtractExtensionTasksDueInPeriodFromComment = result
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Comparison helper for Word export row ordering.
+'------------------------------------------------------------------------------
+Private Function CompareOccurrencesForWordExport(ByRef leftOccurrence As TaskOccurrence, _
+                                                 ByRef rightOccurrence As TaskOccurrence) As Long
+
+    If leftOccurrence.firstDueDate < rightOccurrence.firstDueDate Then
+        CompareOccurrencesForWordExport = -1
+    ElseIf leftOccurrence.firstDueDate > rightOccurrence.firstDueDate Then
+        CompareOccurrencesForWordExport = 1
+    Else
+        CompareOccurrencesForWordExport = StrComp( _
+            UCase$(Trim$(leftOccurrence.taskCode)), _
+            UCase$(Trim$(rightOccurrence.taskCode)), _
+            vbTextCompare)
+    End If
 
 End Function
 
+
 '------------------------------------------------------------------------------
-' Purpose : Reads an extension due date from a task comment line.
-' Input : lineText - comment line containing an [EXT DUE DD/MM/YYYY] tag.
-' dueDate - returned due date if parsed successfully.
-' Output : True if a valid extension due date was found, otherwise False.
+' Purpose : Writes the extensions-required Word table.
 '------------------------------------------------------------------------------
-Private Function TryGetExtDueDate(lineText As String, ByRef dueDate As Date) As Boolean
-    
-    Dim p As Long
-    p = InStr(1, lineText, "[EXT. REQ. FOR ", vbTextCompare)
-    
-    If p = 0 Then
-        TryGetExtDueDate = False
-        Exit Function
-    End If
-    
-    Dim dateStart As Long
-    dateStart = p + Len("[EXT. REQ. FOR ")
-    
-    Dim dateText As String
-    dateText = Mid(lineText, dateStart, 10)
-    
-    TryGetExtDueDate = TryParseUKDate(dateText, dueDate)
+Private Sub WriteExtensionsWordTable(ByVal wdDoc As Object, _
+                                     ByVal wdRange As Object, _
+                                     ByRef taskOccurrences() As TaskOccurrence, _
+                                     ByRef extensionIndexes() As Long, _
+                                     ByVal extensionCount As Long)
+
+    Dim tbl As Object
+    Dim rowIndex As Long
+    Dim occurrence As TaskOccurrence
+
+    Set tbl = wdDoc.Tables.Add(wdRange, extensionCount + 1, EXT_TABLE_COLS)
+
+    SetWordTableCellText tbl, 1, 1, "Task Code"
+    SetWordTableCellText tbl, 1, 2, "When Due"
+    SetWordTableCellText tbl, 1, 3, "Current Extension"
+    SetWordTableCellText tbl, 1, 4, "Required Extension"
+    SetWordTableCellText tbl, 1, 5, "Total Extension"
+
+    For rowIndex = 1 To extensionCount
+        occurrence = taskOccurrences(extensionIndexes(rowIndex))
+
+        SetWordTableCellText tbl, rowIndex + 1, 1, occurrence.taskCode
+        SetWordTableCellText tbl, rowIndex + 1, 2, Format$(occurrence.firstDueDate, "DD/MM/YYYY")
+        SetWordTableCellText tbl, rowIndex + 1, 3, FormatExtensionAmountAndPercent( _
+            occurrence, _
+            occurrence.existingExtensionAmount, _
+            occurrence.existingExtensionPercent)
+        SetWordTableCellText tbl, rowIndex + 1, 4, FormatExtensionAmountAndPercent( _
+            occurrence, _
+            GetOccurrenceExtensionAddedAmount(occurrence), _
+            occurrence.extensionPercentUsed)
+        SetWordTableCellText tbl, rowIndex + 1, 5, FormatExtensionAmountAndPercent( _
+            occurrence, _
+            occurrence.existingExtensionAmount + GetOccurrenceExtensionAddedAmount(occurrence), _
+            occurrence.existingExtensionPercent + occurrence.extensionPercentUsed)
+    Next rowIndex
+
+    StyleWordExportTable tbl
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Writes the scheduled-tasks Word table.
+'------------------------------------------------------------------------------
+Private Sub WriteScheduledTasksWordTable(ByVal wdDoc As Object, _
+                                         ByVal wdRange As Object, _
+                                         ByRef taskOccurrences() As TaskOccurrence, _
+                                         ByRef scheduledIndexes() As Long, _
+                                         ByVal scheduledCount As Long)
+
+    Dim tbl As Object
+    Dim rowIndex As Long
+    Dim occurrence As TaskOccurrence
+
+    Set tbl = wdDoc.Tables.Add(wdRange, scheduledCount + 1, TASK_TABLE_COLS)
+
+    SetWordTableCellText tbl, 1, 1, "When Due"
+    SetWordTableCellText tbl, 1, 2, "Interval Type"
+    SetWordTableCellText tbl, 1, 3, "Task Code"
+    SetWordTableCellText tbl, 1, 4, "Task Sequence"
+    SetWordTableCellText tbl, 1, 5, "Actual Interval"
+    SetWordTableCellText tbl, 1, 6, "Description"
+    SetWordTableCellText tbl, 1, 7, "Extension"
+    SetWordTableCellText tbl, 1, 8, "Serial Number"
+
+    For rowIndex = 1 To scheduledCount
+        occurrence = taskOccurrences(scheduledIndexes(rowIndex))
+
+        SetWordTableCellText tbl, rowIndex + 1, 1, Format$(occurrence.firstDueDate, "DD/MM/YYYY")
+        SetWordTableCellText tbl, rowIndex + 1, 2, occurrence.intervalType
+        SetWordTableCellText tbl, rowIndex + 1, 3, occurrence.taskCode
+        SetWordTableCellText tbl, rowIndex + 1, 4, occurrence.sequenceNumber
+        SetWordTableCellText tbl, rowIndex + 1, 5, FormatActualInterval(occurrence)
+        SetWordTableCellText tbl, rowIndex + 1, 6, occurrence.taskDescription
+        SetWordTableCellText tbl, rowIndex + 1, 7, FormatScheduledExtensionCell(occurrence)
+        SetWordTableCellText tbl, rowIndex + 1, 8, occurrence.serialNumber
+    Next rowIndex
+
+    StyleWordExportTable tbl
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Formats amount and percentage for Word extension columns.
+'------------------------------------------------------------------------------
+Private Function FormatExtensionAmountAndPercent(ByRef occurrence As TaskOccurrence, _
+                                                 ByVal amount As Double, _
+                                                 ByVal proportion As Double) As String
+
+    FormatExtensionAmountAndPercent = FormatExtensionAmount(occurrence, amount) & _
+                                      " (" & FormatOccurrencePercent(proportion) & ")"
 
 End Function
 
+
 '------------------------------------------------------------------------------
-' Purpose : Parses a UK-format date string.
-' Input : dateText - date text in DD/MM/YYYY format.
-' parsedDate - returned date if parsing succeeds.
-' Output : True if parsed successfully, otherwise False.
+' Purpose : Formats the actual interval value for the scheduled-tasks table.
 '------------------------------------------------------------------------------
-Private Function TryParseUKDate(dateText As String, ByRef parsedDate As Date) As Boolean
+Private Function FormatActualInterval(ByRef occurrence As TaskOccurrence) As String
 
-    Dim parts() As String
-    parts = Split(Trim(dateText), "/")
-
-    If UBound(parts) <> 2 Then
-        TryParseUKDate = False
-        Exit Function
-    End If
-
-    If Not IsNumeric(parts(0)) Or Not IsNumeric(parts(1)) Or Not IsNumeric(parts(2)) Then
-        TryParseUKDate = False
-        Exit Function
-    End If
-
-    On Error GoTo BadDate
-
-    parsedDate = DateSerial(CLng(parts(2)), CLng(parts(1)), CLng(parts(0)))
-    TryParseUKDate = True
-    Exit Function
-
-BadDate:
-    TryParseUKDate = False
+    FormatActualInterval = FormatExtensionAmount(occurrence, occurrence.intervalValue)
 
 End Function
 
+
 '------------------------------------------------------------------------------
-' Purpose : Cleans chart comment text for inclusion in a Word report.
-' Input : commentText - raw Excel comment text.
-' Output : Cleaned multi-line text using Word-friendly line breaks.
+' Purpose : Formats the extension column for a scheduled task row.
 '------------------------------------------------------------------------------
-Private Function CleanTaskCommentForWord(commentText As String) As String
+Private Function FormatScheduledExtensionCell(ByRef occurrence As TaskOccurrence) As String
 
-    Dim s As String
-    s = commentText
-
-    ' Remove the leading "x task(s):" line if present.
-    Dim firstBreak As Long
-    firstBreak = InStr(s, Chr(10))
-
-    If firstBreak > 0 Then
-        If InStr(1, Left(s, firstBreak), "task(s):", vbTextCompare) > 0 Then
-            s = Mid(s, firstBreak + 1)
-        End If
+    If occurrence.wasAutoPushed Then
+        FormatScheduledExtensionCell = FormatExtensionAmountAndPercent( _
+            occurrence, _
+            GetOccurrenceExtensionAddedAmount(occurrence), _
+            occurrence.extensionPercentUsed)
+    Else
+        FormatScheduledExtensionCell = vbNullString
     End If
-
-    s = Replace(s, Chr(10), vbCrLf)
-    s = Trim(s)
-
-    CleanTaskCommentForWord = s
 
 End Function
 
+
 '------------------------------------------------------------------------------
-' Purpose : Determines whether a chart header value represents a down or maintenance week
+' Purpose : Writes one Word table cell value without leaving a trailing cell mark.
+'------------------------------------------------------------------------------
+Private Sub SetWordTableCellText(ByVal tbl As Object, _
+                                 ByVal rowIndex As Long, _
+                                 ByVal columnIndex As Long, _
+                                 ByVal cellText As String)
+
+    Dim cellRange As Object
+    Set cellRange = tbl.Cell(rowIndex, columnIndex).Range
+
+    ' Exclude the end-of-cell marker, then replace the visible cell text.
+    cellRange.MoveEnd 1, -1   ' wdCharacter = 1
+    cellRange.Text = cellText
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Applies shared formatting to a Word export table.
+'------------------------------------------------------------------------------
+Private Sub StyleWordExportTable(ByVal tbl As Object)
+
+    Dim borderIndex As Long
+
+    On Error Resume Next
+    tbl.AutoFitBehavior WD_AUTO_FIT_WINDOW
+
+    For borderIndex = 1 To 6
+        With tbl.Borders(borderIndex)
+            .LineStyle = WD_LINE_STYLE_SINGLE
+            .LineWidth = 4
+            .Color = WD_COLOR_BLACK
+        End With
+    Next borderIndex
+    On Error GoTo 0
+
+    With tbl.Range.Font
+        .Name = "Arial"
+        .Size = 8
+        .Bold = False
+    End With
+
+    With tbl.Rows(1).Range.Font
+        .Bold = True
+        .Size = 9
+    End With
+
+    tbl.Rows(1).Range.ParagraphFormat.Alignment = WD_ALIGN_PARAGRAPH_CENTER
+
+    On Error Resume Next
+    tbl.Rows(1).Shading.BackgroundPatternColor = RGB(220, 220, 220)
+    On Error GoTo 0
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Appends a bold section heading at the end of the Word document.
+'------------------------------------------------------------------------------
+Private Sub AppendWordSectionHeading(ByVal wdDoc As Object, ByVal headingText As String)
+
+    Dim wdRange As Object
+    Dim headingStart As Long
+
+    Set wdRange = wdDoc.Content
+    wdRange.Collapse WD_COLLAPSE_END
+
+    If wdRange.Start > 0 Then
+        wdRange.InsertAfter vbCr
+        wdRange.Collapse WD_COLLAPSE_END
+    End If
+
+    headingStart = wdRange.Start
+    wdRange.InsertAfter headingText & vbCr
+
+    With wdDoc.Range(headingStart, headingStart + Len(headingText))
+        .Font.Name = "Arial"
+        .Font.Bold = True
+        .Font.Size = 12
+    End With
+
+End Sub
+
+
+'------------------------------------------------------------------------------
+' Purpose : Determines whether a chart header value represents a down or maintenance week.
 ' Input : headerValue - value from the chart header row, usually row 3.
-' Output : True if the value is "DOWN" or starts with "MAINT WK"; otherwise false
+' Output : True if the value is "DOWN" or starts with "MAINT WK"; otherwise false.
 '------------------------------------------------------------------------------
 Private Function IsDownOrMaintHeader(ByVal headerValue As Variant) As Boolean
 
@@ -510,6 +659,7 @@ Private Function IsDownOrMaintHeader(ByVal headerValue As Variant) As Boolean
     IsDownOrMaintHeader = (s = "DOWN" Or Left$(s, 8) = "MAINT WK")
 
 End Function
+
 
 '------------------------------------------------------------------------------
 ' Purpose : Determines whether a worksheet name follows the aircraft chart
